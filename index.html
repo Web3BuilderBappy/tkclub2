@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MEHEDI ONX LEADER V8</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body, html {
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+            font-family: 'Rajdhani', sans-serif;
+        }
+
+        iframe {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+            z-index: 0;
+        }
+
+        .card {
+            position: fixed;
+            top: 10%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 210px;
+            background: rgba(10, 5, 5, 0.93);
+            border: 1.5px solid rgba(220, 30, 30, 0.5);
+            border-radius: 20px;
+            padding: 18px 16px;
+            backdrop-filter: blur(16px);
+            box-shadow:
+                0 0 0 1px rgba(220,30,30,0.15),
+                0 0 30px rgba(220,30,30,0.2),
+                0 4px 40px rgba(0,0,0,0.6);
+            z-index: 10000;
+            cursor: move;
+            touch-action: none;
+            user-select: none;
+        }
+
+        .card::before, .card::after {
+            content: '';
+            position: absolute;
+            width: 12px; height: 12px;
+            border-color: #e01e1e;
+            border-style: solid;
+        }
+        .card::before { top: 8px; left: 8px; border-width: 2px 0 0 2px; border-radius: 3px 0 0 0; }
+        .card::after  { bottom: 8px; right: 8px; border-width: 0 2px 2px 0; border-radius: 0 0 3px 0; }
+
+        .header { text-align: center; margin-bottom: 14px; }
+
+        .logo-line {
+            display: flex; align-items: center; justify-content: center; gap: 6px; margin-bottom: 3px;
+        }
+
+        .logo-dot {
+            width: 5px; height: 5px;
+            background: #e01e1e;
+            border-radius: 50%;
+            box-shadow: 0 0 6px #e01e1e;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .brand {
+            font-family: 'Orbitron', monospace;
+            font-size: 10px; font-weight: 900;
+            letter-spacing: 2px; color: #fff;
+        }
+        .brand span { color: #e01e1e; }
+
+        .version-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #c41010, #ff4444);
+            color: #fff; font-size: 8px; font-weight: 700;
+            letter-spacing: 2px; padding: 2px 8px;
+            border-radius: 20px; margin-top: 4px;
+        }
+
+        .divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(220,30,30,0.4), transparent);
+            margin: 12px 0;
+        }
+
+        #login-box { text-align: center; }
+
+        .input-wrap { margin-bottom: 10px; }
+
+        .input-wrap input {
+            width: 100%;
+            padding: 10px 12px;
+            background: rgba(220,30,30,0.07);
+            border: 1px solid rgba(220,30,30,0.3);
+            border-radius: 10px;
+            color: #fff;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 13px; font-weight: 600;
+            letter-spacing: 2px; text-align: center;
+            outline: none; transition: all 0.3s;
+        }
+
+        .input-wrap input:focus {
+            border-color: #e01e1e;
+            background: rgba(220,30,30,0.12);
+            box-shadow: 0 0 15px rgba(220,30,30,0.15);
+        }
+
+        .input-wrap input::placeholder { color: rgba(255,255,255,0.2); }
+
+        .btn-start {
+            width: 100%; padding: 11px;
+            background: linear-gradient(135deg, #c41010, #ff4444);
+            border: none; border-radius: 10px;
+            color: #fff; font-family: 'Orbitron', monospace;
+            font-size: 9px; font-weight: 900; letter-spacing: 1.5px;
+            cursor: pointer; transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(220,30,30,0.3);
+        }
+
+        .btn-start:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(220,30,30,0.45); }
+
+        #hack-content { display: none; }
+
+        .period-row {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 12px; padding: 6px 10px;
+            background: rgba(220,30,30,0.06);
+            border: 1px solid rgba(220,30,30,0.15);
+            border-radius: 8px;
+        }
+
+        .period-label { font-size: 9px; color: rgba(255,255,255,0.3); letter-spacing: 1.5px; }
+        .period-value { font-family: 'Orbitron', monospace; font-size: 9px; color: #ff6b6b; }
+
+        /* Signal box */
+        .signal-container {
+            position: relative;
+            background: linear-gradient(160deg, #1a0303 0%, #0d0000 60%, #180505 100%);
+            border: 1.5px solid rgba(220,30,30,0.4);
+            border-radius: 14px;
+            height: 100px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            margin-bottom: 12px;
+            gap: 4px;
+        }
+
+        .signal-container::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 3px;
+            background: linear-gradient(90deg, transparent, #e01e1e, #ff4444, #e01e1e, transparent);
+            box-shadow: 0 0 12px rgba(220,30,30,0.9);
+        }
+
+        /* TKClub logo watermark */
+        .signal-container::after {
+            content: 'TK';
+            position: absolute;
+            font-family: 'Orbitron', monospace;
+            font-size: 60px;
+            font-weight: 900;
+            color: rgba(220,30,30,0.04);
+            letter-spacing: -4px;
+            pointer-events: none;
+        }
+
+        .scanner-line {
+            position: absolute; width: 100%; height: 2px;
+            background: linear-gradient(90deg, transparent, #e01e1e, transparent);
+            box-shadow: 0 0 12px #e01e1e;
+            top: 0; display: none;
+            animation: scan 1.5s ease-in-out infinite;
+        }
+
+        @keyframes scan { 0% { top: 0; opacity: 1; } 100% { top: 100%; opacity: 0.2; } }
+
+        .signal-label {
+            font-size: 8px; letter-spacing: 3px;
+            color: rgba(255,255,255,0.2); font-weight: 600;
+            position: relative; z-index: 1;
+        }
+
+        .signal-text {
+            font-family: 'Orbitron', monospace;
+            font-size: 34px; font-weight: 900;
+            letter-spacing: 4px; transition: all 0.4s;
+            line-height: 1; position: relative; z-index: 1;
+        }
+
+        /* BIG = TKClub red glow */
+        .signal-text.big   { color: #ff3333; text-shadow: 0 0 25px rgba(255,51,51,0.9), 0 0 50px rgba(220,30,30,0.5); }
+        /* SMALL = bright white with red hint */
+        .signal-text.small { color: #ffffff; text-shadow: 0 0 20px rgba(255,255,255,0.7), 0 0 40px rgba(220,30,30,0.25); }
+        .signal-text.wait  { color: rgba(255,255,255,0.12); text-shadow: none; font-size: 20px; }
+        .signal-text.scan-mode { color: #ff6b6b; text-shadow: 0 0 15px rgba(255,107,107,0.6); font-size: 20px; letter-spacing: 3px; }
+
+        .progress-bar {
+            width: 100%; height: 2px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 2px; overflow: hidden; margin-bottom: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #c41010, #ff4444);
+            border-radius: 2px; transition: width 1s linear;
+            box-shadow: 0 0 6px #e01e1e;
+        }
+
+        .timer-row {
+            display: flex; align-items: center; justify-content: center;
+            gap: 6px; margin-bottom: 12px;
+        }
+
+        .timer-label { font-size: 10px; color: rgba(255,255,255,0.25); letter-spacing: 1.5px; }
+
+        .timer-value {
+            font-family: 'Orbitron', monospace;
+            font-size: 14px; font-weight: 700;
+            color: #ff6b6b; min-width: 24px; text-align: center;
+        }
+
+        .tg-link {
+            display: flex; align-items: center; justify-content: center;
+            gap: 6px; padding: 8px;
+            background: rgba(0,136,204,0.08);
+            border: 1px solid rgba(0,136,204,0.2);
+            border-radius: 9px; color: #4fb3e8;
+            text-decoration: none; font-size: 10px;
+            font-weight: 700; letter-spacing: 1px; transition: all 0.3s;
+        }
+
+        .tg-link:hover { background: rgba(0,136,204,0.16); }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-8px); }
+            40% { transform: translateX(8px); }
+            60% { transform: translateX(-5px); }
+            80% { transform: translateX(5px); }
+        }
+        .shake { animation: shake 0.45s ease; }
+
+        .input-wrap input.error {
+            border-color: #ff3333 !important;
+            background: rgba(255,30,30,0.12) !important;
+            box-shadow: 0 0 18px rgba(255,30,30,0.25) !important;
+        }
+
+        .error-toast {
+            position: absolute;
+            top: calc(100% + 10px);
+            left: 50%;
+            transform: translateX(-50%) scale(0.85);
+            width: 90%;
+            background: linear-gradient(135deg, #1c0202, #2a0404);
+            border: 1px solid rgba(255,60,60,0.45);
+            border-radius: 12px;
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.35s cubic-bezier(0.34,1.56,0.64,1);
+            box-shadow: 0 6px 24px rgba(220,30,30,0.35);
+            z-index: 99999;
+            overflow: hidden;
+        }
+
+        .error-toast.show {
+            opacity: 1;
+            transform: translateX(-50%) scale(1);
+        }
+
+        .toast-icon-wrap {
+            width: 26px; height: 26px; flex-shrink: 0;
+            background: rgba(255,50,50,0.15);
+            border: 1.5px solid rgba(255,50,50,0.4);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px;
+        }
+
+        .error-toast.show .toast-icon-wrap {
+            animation: iconPulse 0.6s ease;
+        }
+
+        @keyframes iconPulse {
+            0%   { transform: scale(0.5); opacity: 0; }
+            60%  { transform: scale(1.2); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .toast-body { flex: 1; }
+
+        .toast-title {
+            font-family: "Orbitron", monospace;
+            font-size: 9px; font-weight: 900;
+            color: #ff4444; letter-spacing: 1.5px;
+            display: block; margin-bottom: 2px;
+        }
+
+        .toast-sub {
+            font-family: "Rajdhani", sans-serif;
+            font-size: 10px; color: rgba(255,150,150,0.6);
+            letter-spacing: 0.5px;
+        }
+
+        .toast-progress {
+            position: absolute;
+            bottom: 0; left: 0; right: 0; height: 2px;
+            background: rgba(255,255,255,0.05);
+        }
+
+        .toast-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff3333, #ff6b6b);
+            width: 100%;
+            transform-origin: left;
+            border-radius: 0 0 12px 12px;
+        }
+
+        .error-toast.show .toast-progress-fill {
+            animation: drainBar 2.2s linear forwards;
+        }
+
+        @keyframes drainBar {
+            from { transform: scaleX(1); }
+            to   { transform: scaleX(0); }
+        }
+    </style>
+</head>
+<body>
+
+    <iframe src="https://tkclub2.com/#/register?invitationCode=27431220176"></iframe>
+
+    <div class="card" id="movableWindow">
+
+        <div class="header">
+            <div class="logo-line">
+                <div class="logo-dot"></div>
+                <div class="brand">MEHEDI <span>ONX</span></div>
+                <div class="logo-dot"></div>
+            </div>
+            <div class="version-badge">LEADER V8</div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div id="login-box">
+            <div class="input-wrap">
+                <input type="password" id="passInput" placeholder="PASSWORD"
+                    onkeydown="if(event.key==='Enter') checkLogin()">
+            </div>
+            <button class="btn-start" onclick="checkLogin()">START PRO ENGINE</button>
+        </div>
+
+        <div id="hack-content">
+            <div class="period-row">
+                <span class="period-label">ID</span>
+                <span class="period-value" id="periodDisplay">—</span>
+            </div>
+
+            <div class="signal-container">
+                <div id="scannerLine" class="scanner-line"></div>
+                <div class="signal-label">SIGNAL</div>
+                <div id="signalDisplay" class="signal-text wait">WAIT</div>
+            </div>
+
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill" style="width:100%"></div>
+            </div>
+
+            <div class="timer-row">
+                <span class="timer-label">NEXT IN</span>
+                <span class="timer-value" id="countdown">30</span>
+                <span class="timer-label">SEC</span>
+            </div>
+
+            <div class="divider"></div>
+
+            <a href="https://t.me/+sKlFZsdP-oswNmZl" class="tg-link">
+                ✈️ JOIN TELEGRAM VIP
+            </a>
+        </div>
+    </div>
+
+    <script>
+        const dragItem = document.getElementById('movableWindow');
+        let active = false, initialX, initialY, xOffset = 0, yOffset = 0;
+
+        dragItem.addEventListener('touchstart', e => {
+            initialX = e.touches[0].clientX - xOffset;
+            initialY = e.touches[0].clientY - yOffset;
+            active = true;
+        }, { passive: false });
+        dragItem.addEventListener('touchend', () => active = false);
+        dragItem.addEventListener('touchmove', e => {
+            if (!active) return;
+            e.preventDefault();
+            xOffset = e.touches[0].clientX - initialX;
+            yOffset = e.touches[0].clientY - initialY;
+            dragItem.style.transform = `translate3d(${xOffset}px, ${yOffset}px, 0)`;
+        }, { passive: false });
+
+        dragItem.addEventListener('mousedown', e => {
+            initialX = e.clientX - xOffset;
+            initialY = e.clientY - yOffset;
+            active = true;
+        });
+        document.addEventListener('mouseup', () => active = false);
+        document.addEventListener('mousemove', e => {
+            if (!active) return;
+            xOffset = e.clientX - initialX;
+            yOffset = e.clientY - initialY;
+            dragItem.style.transform = `translate3d(${xOffset}px, ${yOffset}px, 0)`;
+        });
+
+        function checkLogin() {
+            const inp = document.getElementById('passInput');
+            if (inp.value === "BKG7788") {
+                document.getElementById('login-box').style.display = 'none';
+                document.getElementById('hack-content').style.display = 'block';
+                runV8();
+            } else {
+                inp.classList.add('shake');
+                inp.classList.add('error');
+                inp.value = '';
+                const toast = document.getElementById('errorToast');
+                const bar = document.getElementById('toastBar');
+                bar.style.animation = 'none';
+                bar.offsetHeight; // reflow
+                toast.classList.add('show');
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                    inp.classList.remove('shake');
+                    inp.classList.remove('error');
+                }, 2300);
+            }
+        }
+
+        let lastResult = '', streakCount = 0;
+
+        function runV8() {
+            const display   = document.getElementById('signalDisplay');
+            const scanner   = document.getElementById('scannerLine');
+            const periodEl  = document.getElementById('periodDisplay');
+            const countdown = document.getElementById('countdown');
+            const progress  = document.getElementById('progressFill');
+
+            setInterval(() => {
+                const now  = new Date();
+                const secs = now.getSeconds();
+                const round = (now.getHours() * 120) + (now.getMinutes() * 2) + (secs >= 30 ? 2 : 1);
+                periodEl.innerText = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}${String(round).padStart(4,'0')}`;
+
+                const timeLeft = 30 - (secs % 30);
+                countdown.innerText = timeLeft;
+                progress.style.width = (timeLeft / 30 * 100) + '%';
+
+                if (timeLeft === 30 || display.innerText === 'WAIT') {
+                    display.className = 'signal-text scan-mode';
+                    display.innerText = 'SCAN...';
+                    scanner.style.display = 'block';
+
+                    setTimeout(() => {
+                        const options = ['BIG', 'SMALL'];
+                        let pick;
+                        if (streakCount >= 2) { pick = lastResult; streakCount = 0; }
+                        else {
+                            pick = options[Math.floor(Math.random() * 2)];
+                            if (pick === lastResult) streakCount++;
+                            else streakCount = 0;
+                        }
+                        lastResult = pick;
+                        scanner.style.display = 'none';
+                        display.className = 'signal-text ' + pick.toLowerCase();
+                        display.innerText = pick;
+                    }, 2500);
+                }
+            }, 1000);
+        }
+    </script>
+</body>
+</html>
