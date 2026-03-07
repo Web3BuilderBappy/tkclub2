@@ -5,227 +5,333 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CricketChain — On-Chain Prediction Market</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+
+<!-- Reown AppKit (WalletConnect v3) -->
+<script type="module">
+  import { createAppKit } from 'https://esm.sh/@reown/appkit@1.6.8'
+  import { EthersAdapter } from 'https://esm.sh/@reown/appkit-adapter-ethers@1.6.8'
+  import { sepolia } from 'https://esm.sh/@reown/appkit/networks'
+  import { ethers } from 'https://esm.sh/ethers@6.7.0'
+
+  const PROJECT_ID = '1724feb47aaa94102743462f8a84e693'
+  const CA = '0x4b57B653CE1f9422772015717FC0Ebd920EC16E8'
+  const OWNER = '0x0e4d3a110' // will be fetched
+
+  const ABI = [
+    "function matchCount() view returns (uint256)",
+    "function getAllMatches() view returns (tuple(uint256 id,string team1,string team2,string matchType,string venue,uint256 startTime,uint8 status,uint8 result,uint256 totalPool,uint256 team1Pool,uint256 team2Pool,uint256 drawPool)[])",
+    "function predict(uint256,uint8) payable",
+    "function claimReward(uint256)",
+    "function claimRefund(uint256)",
+    "function getUserPrediction(uint256,address) view returns (tuple(address predictor,uint256 matchId,uint8 choice,uint256 amount,bool claimed))",
+    "function createMatch(string,string,string,string,uint256) returns (uint256)",
+    "function closeMatch(uint256)",
+    "function resolveMatch(uint256,uint8)",
+    "function cancelMatch(uint256)",
+    "function owner() view returns (address)"
+  ]
+
+  const ethersAdapter = new EthersAdapter()
+
+  const modal = createAppKit({
+    adapters: [ethersAdapter],
+    networks: [sepolia],
+    projectId: PROJECT_ID,
+    metadata: {
+      name: 'CricketChain',
+      description: 'On-chain cricket prediction market',
+      url: 'https://cricketchain.app',
+      icons: ['https://avatars.githubusercontent.com/u/37784886']
+    },
+    features: { analytics: false },
+    themeMode: 'dark',
+    themeVariables: {
+      '--w3m-color-mix': '#000000',
+      '--w3m-color-mix-strength': 40,
+      '--w3m-accent': '#ffffff',
+      '--w3m-border-radius-master': '2px'
+    }
+  })
+
+  window._appkit = modal
+  window._ethers = ethers
+  window._ABI = ABI
+  window._CA = CA
+
+  // Listen for account changes
+  modal.subscribeAccount(async (account) => {
+    if (account.isConnected && account.address) {
+      window._userAddr = account.address
+      await initContract()
+      updateNavConnected()
+      loadMatches()
+      checkAdminAccess()
+    } else {
+      window._userAddr = null
+      window._contract = null
+      window._isOwner = false
+      updateNavDisconnected()
+      hideAdmin()
+    }
+  })
+
+  async function initContract() {
+    try {
+      const walletProvider = modal.getWalletProvider()
+      if (!walletProvider) return
+      const provider = new ethers.BrowserProvider(walletProvider)
+      const signer = await provider.getSigner()
+      window._contract = new ethers.Contract(CA, ABI, signer)
+      window._provider = provider
+
+      // Check owner
+      const owner = await window._contract.owner()
+      window._isOwner = owner.toLowerCase() === window._userAddr.toLowerCase()
+      window._ownerAddr = owner
+    } catch(e) {
+      console.error('initContract:', e)
+    }
+  }
+
+  function updateNavConnected() {
+    const addr = window._userAddr
+    const short = addr.slice(0,6)+'...'+addr.slice(-4)
+    const btn = document.getElementById('connectBtn')
+    if (btn) {
+      btn.textContent = short
+      btn.onclick = () => window._appkit.open()
+      btn.style.cssText = 'background:#0d0d0d;color:#999;border:1px solid #1f1f1f;font-family:JetBrains Mono,monospace;font-size:0.62rem;padding:0.4rem 0.8rem;border-radius:3px;cursor:pointer;'
+    }
+    const wa = document.getElementById('waddr')
+    if(wa) { wa.style.display='none' }
+  }
+
+  function updateNavDisconnected() {
+    const btn = document.getElementById('connectBtn')
+    if (btn) {
+      btn.textContent = 'Connect'
+      btn.onclick = () => window._appkit.open()
+      btn.style.cssText = 'background:#fff;color:#000;font-family:Syne,sans-serif;font-size:0.75rem;font-weight:700;letter-spacing:0.04em;padding:0.42rem 1rem;border-radius:3px;cursor:pointer;border:none;text-transform:uppercase;'
+    }
+  }
+
+  function checkAdminAccess() {
+    const adminTab = document.getElementById('tab-admin')
+    if (adminTab) {
+      adminTab.style.display = window._isOwner ? 'block' : 'none'
+    }
+  }
+
+  function hideAdmin() {
+    const adminTab = document.getElementById('tab-admin')
+    if (adminTab) adminTab.style.display = 'none'
+    if (document.getElementById('page-admin')?.classList.contains('active')) {
+      switchTab('markets')
+    }
+  }
+
+  window._initContract = initContract
+  window.addEventListener('load', () => {
+    setTimeout(checkAdminAccess, 500)
+    loadMatches()
+  })
+</script>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
+
 <style>
 :root {
-  --black: #000;
-  --white: #fff;
-  --g900: #0d0d0d;
-  --g800: #1a1a1a;
-  --g600: #555;
-  --g400: #999;
-  --g200: #e0e0e0;
-  --border: #1f1f1f;
-  --green: #4ade80;
-  --red: #f87171;
-  --gold: #fbbf24;
+  --black:#000; --white:#fff; --g900:#0d0d0d; --g800:#1a1a1a;
+  --g600:#555; --g400:#999; --g200:#e0e0e0; --border:#1f1f1f;
+  --green:#4ade80; --red:#f87171; --gold:#fbbf24;
 }
-* { margin:0; padding:0; box-sizing:border-box; }
-body { background:var(--black); color:var(--white); font-family:'Syne',sans-serif; min-height:100vh; overflow-x:hidden; }
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--black);color:var(--white);font-family:'Syne',sans-serif;min-height:100vh;overflow-x:hidden;}
 
-/* NAV */
-nav { position:fixed; top:0; left:0; right:0; z-index:200; height:58px; display:flex; align-items:center; justify-content:space-between; padding:0 1.5rem; background:rgba(0,0,0,0.95); backdrop-filter:blur(20px); border-bottom:1px solid var(--border); }
-.logo { font-size:1.05rem; font-weight:800; letter-spacing:-0.02em; display:flex; align-items:center; gap:0.5rem; }
-.logo-dot { width:7px; height:7px; background:var(--white); border-radius:50%; animation:blink 2s infinite; }
-@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
-.nav-r { display:flex; align-items:center; gap:0.6rem; }
-.pill { font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--g400); border:1px solid var(--border); padding:0.28rem 0.7rem; border-radius:100px; display:flex; align-items:center; gap:0.35rem; }
-.live-dot { width:5px; height:5px; background:var(--green); border-radius:50%; animation:blink 2s infinite; }
-.btn { font-family:'Syne',sans-serif; font-size:0.75rem; font-weight:700; letter-spacing:0.04em; padding:0.42rem 1rem; border-radius:3px; cursor:pointer; transition:all 0.15s; border:none; text-transform:uppercase; }
-.btn-w { background:var(--white); color:var(--black); }
-.btn-w:hover { background:var(--g200); }
-.btn-o { background:transparent; color:var(--g400); border:1px solid var(--border); }
-.btn-o:hover { border-color:var(--g400); color:var(--white); }
-.btn-r { background:transparent; color:var(--red); border:1px solid rgba(248,113,113,0.3); }
-.btn-r:hover { background:rgba(248,113,113,0.08); }
-.btn-g { background:transparent; color:var(--green); border:1px solid rgba(74,222,128,0.3); }
-.btn-g:hover { background:rgba(74,222,128,0.08); }
-.waddr { font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:var(--g400); border:1px solid var(--border); padding:0.28rem 0.65rem; border-radius:3px; display:none; }
+nav{position:fixed;top:0;left:0;right:0;z-index:200;height:58px;display:flex;align-items:center;justify-content:space-between;padding:0 1.5rem;background:rgba(0,0,0,0.96);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);}
+.logo{font-size:1.05rem;font-weight:800;letter-spacing:-0.02em;display:flex;align-items:center;gap:0.5rem;}
+.logo-dot{width:7px;height:7px;background:var(--white);border-radius:50%;animation:blink 2s infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
+.nav-r{display:flex;align-items:center;gap:0.6rem;}
+.pill{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--g400);border:1px solid var(--border);padding:0.28rem 0.7rem;border-radius:100px;display:flex;align-items:center;gap:0.35rem;}
+.live-dot{width:5px;height:5px;background:var(--green);border-radius:50%;animation:blink 2s infinite;}
+.btn{font-family:'Syne',sans-serif;font-size:0.75rem;font-weight:700;letter-spacing:0.04em;padding:0.42rem 1rem;border-radius:3px;cursor:pointer;transition:all 0.15s;border:none;text-transform:uppercase;}
+.btn-w{background:var(--white);color:var(--black);}
+.btn-w:hover{background:var(--g200);}
+.btn-o{background:transparent;color:var(--g400);border:1px solid var(--border);}
+.btn-o:hover{border-color:var(--g400);color:var(--white);}
+.btn-g{background:transparent;color:var(--green);border:1px solid rgba(74,222,128,0.3);}
+.btn-g:hover{background:rgba(74,222,128,0.08);}
+.btn-r{background:transparent;color:var(--red);border:1px solid rgba(248,113,113,0.3);}
+.btn-r:hover{background:rgba(248,113,113,0.08);}
+#waddr{display:none;}
 
-/* TABS */
-.tabs { display:flex; border-bottom:1px solid var(--border); background:var(--g900); position:sticky; top:58px; z-index:100; }
-.tab { font-size:0.68rem; font-weight:700; letter-spacing:0.12em; text-transform:uppercase; padding:0.85rem 1.5rem; cursor:pointer; color:var(--g600); border-bottom:2px solid transparent; transition:all 0.15s; }
-.tab.active { color:var(--white); border-bottom-color:var(--white); }
-.tab-admin { color:var(--gold) !important; }
+.tabs{display:flex;border-bottom:1px solid var(--border);background:var(--g900);position:sticky;top:58px;z-index:100;}
+.tab{font-size:0.68rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;padding:0.85rem 1.5rem;cursor:pointer;color:var(--g600);border-bottom:2px solid transparent;transition:all 0.15s;}
+.tab.active{color:var(--white);border-bottom-color:var(--white);}
+#tab-admin{color:var(--gold);display:none;}
 
-/* PAGES */
-.page { display:none; }
-.page.active { display:block; }
+.page{display:none;}
+.page.active{display:block;}
 
-/* HERO */
-.hero { padding:4rem 1.5rem 3rem; max-width:1100px; margin:0 auto; border-bottom:1px solid var(--border); }
-.hero-tag { font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--g600); letter-spacing:0.15em; text-transform:uppercase; margin-bottom:1.5rem; }
-.hero h1 { font-size:clamp(2.5rem,6vw,5rem); font-weight:800; line-height:0.95; letter-spacing:-0.04em; margin-bottom:2rem; }
-.hero h1 span { color:var(--g600); }
-.hero-bottom { display:flex; align-items:flex-end; justify-content:space-between; gap:1.5rem; flex-wrap:wrap; }
-.hero-desc { font-size:0.9rem; color:var(--g400); max-width:360px; line-height:1.65; }
-.stats-row { display:flex; gap:2rem; }
-.stat { text-align:right; }
-.stat-n { font-family:'JetBrains Mono',monospace; font-size:1.5rem; font-weight:500; display:block; }
-.stat-l { font-size:0.6rem; color:var(--g600); letter-spacing:0.12em; text-transform:uppercase; }
+.hero{padding:4rem 1.5rem 3rem;max-width:1100px;margin:0 auto;border-bottom:1px solid var(--border);}
+.hero-tag{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--g600);letter-spacing:0.15em;text-transform:uppercase;margin-bottom:1.5rem;}
+.hero h1{font-size:clamp(2.5rem,6vw,5rem);font-weight:800;line-height:0.95;letter-spacing:-0.04em;margin-bottom:2rem;}
+.hero h1 span{color:var(--g600);}
+.hero-bottom{display:flex;align-items:flex-end;justify-content:space-between;gap:1.5rem;flex-wrap:wrap;}
+.hero-desc{font-size:0.9rem;color:var(--g400);max-width:360px;line-height:1.65;}
+.stats-row{display:flex;gap:2rem;}
+.stat{text-align:right;}
+.stat-n{font-family:'JetBrains Mono',monospace;font-size:1.5rem;font-weight:500;display:block;}
+.stat-l{font-size:0.6rem;color:var(--g600);letter-spacing:0.12em;text-transform:uppercase;}
 
-/* CONTRACT BAR */
-.cbar { background:var(--g900); border-bottom:1px solid var(--border); padding:0.6rem 1.5rem; display:flex; gap:1.5rem; flex-wrap:wrap; align-items:center; }
-.ci { display:flex; align-items:center; gap:0.4rem; }
-.cl { font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:var(--g600); letter-spacing:0.1em; text-transform:uppercase; }
-.cv { font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:var(--g400); }
-.cv a { color:var(--g400); text-decoration:none; border-bottom:1px solid var(--border); }
-.cv a:hover { color:var(--white); }
+.cbar{background:var(--g900);border-bottom:1px solid var(--border);padding:0.6rem 1.5rem;display:flex;gap:1.5rem;flex-wrap:wrap;align-items:center;}
+.ci{display:flex;align-items:center;gap:0.4rem;}
+.cl{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--g600);letter-spacing:0.1em;text-transform:uppercase;}
+.cv{font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--g400);}
+.cv a{color:var(--g400);text-decoration:none;border-bottom:1px solid var(--border);}
+.cv a:hover{color:var(--white);}
 
-/* SECTION */
-.sec { max-width:1100px; margin:0 auto; padding:2rem 1.5rem; }
-.sec-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:1.5rem; padding-bottom:0.8rem; border-bottom:1px solid var(--border); }
-.sec-title { font-size:0.62rem; font-weight:700; letter-spacing:0.2em; text-transform:uppercase; color:var(--g400); }
-.sec-count { font-family:'JetBrains Mono',monospace; font-size:0.58rem; color:var(--g600); }
+.sec{max-width:1100px;margin:0 auto;padding:2rem 1.5rem;}
+.sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;padding-bottom:0.8rem;border-bottom:1px solid var(--border);}
+.sec-title{font-size:0.62rem;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:var(--g400);}
+.sec-count{font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:var(--g600);}
 
-/* MATCH GRID */
-.mgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(290px,1fr)); gap:1px; background:var(--border); border:1px solid var(--border); }
-.mcard { background:var(--black); padding:1.3rem; transition:background 0.15s; position:relative; }
-.mcard:hover { background:var(--g900); }
-.mcard-head { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1.1rem; }
-.mtype { font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:var(--g600); letter-spacing:0.1em; text-transform:uppercase; }
-.sbadge { font-family:'JetBrains Mono',monospace; font-size:0.55rem; letter-spacing:0.08em; padding:0.15rem 0.45rem; border:1px solid; border-radius:2px; }
-.s0 { color:var(--green); border-color:rgba(74,222,128,0.3); }
-.s1 { color:var(--g600); border-color:var(--border); }
-.s2 { color:var(--gold); border-color:rgba(251,191,36,0.3); }
-.s3 { color:var(--g600); border-color:var(--border); }
-.teams { display:flex; align-items:center; justify-content:space-between; margin-bottom:1.1rem; }
-.team { text-align:center; }
-.tflag { font-size:1.9rem; display:block; margin-bottom:0.25rem; }
-.tname { font-size:0.9rem; font-weight:800; letter-spacing:-0.02em; }
-.vs { font-family:'JetBrains Mono',monospace; font-size:0.58rem; color:var(--g600); letter-spacing:0.2em; }
-.pbar-wrap { margin-bottom:1rem; }
-.prow { display:flex; align-items:center; gap:0.5rem; margin-bottom:0.3rem; }
-.pname { font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:var(--g600); width:26px; text-align:right; flex-shrink:0; }
-.pbg { flex:1; height:2px; background:var(--border); }
-.pfill { height:100%; background:var(--white); transition:width 0.8s ease; }
-.ppct { font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:var(--g400); width:26px; flex-shrink:0; }
-.cmeta { display:flex; justify-content:space-between; margin-bottom:0.9rem; flex-wrap:wrap; gap:0.25rem; }
-.cmi { font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:var(--g600); }
-.cmi span { color:var(--g400); }
-.brow { display:grid; grid-template-columns:1fr 1fr; gap:0.35rem; }
-.bbtn { font-family:'Syne',sans-serif; font-size:0.62rem; font-weight:700; letter-spacing:0.03em; padding:0.52rem 0.3rem; background:transparent; border:1px solid var(--border); color:var(--g400); cursor:pointer; border-radius:2px; transition:all 0.15s; text-transform:uppercase; }
-.bbtn:hover { border-color:var(--white); color:var(--white); background:var(--g900); }
-.closed-label { font-family:'JetBrains Mono',monospace; font-size:0.58rem; color:var(--g600); text-align:center; padding:0.4rem 0; }
+.mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:1px;background:var(--border);border:1px solid var(--border);}
+.mcard{background:var(--black);padding:1.3rem;transition:background 0.15s;}
+.mcard:hover{background:var(--g900);}
+.mcard-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.1rem;}
+.mtype{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--g600);letter-spacing:0.1em;text-transform:uppercase;}
+.sbadge{font-family:'JetBrains Mono',monospace;font-size:0.55rem;letter-spacing:0.08em;padding:0.15rem 0.45rem;border:1px solid;border-radius:2px;}
+.s0{color:var(--green);border-color:rgba(74,222,128,0.3);}
+.s1{color:var(--g600);border-color:var(--border);}
+.s2{color:var(--gold);border-color:rgba(251,191,36,0.3);}
+.s3{color:var(--g600);border-color:var(--border);}
 
-/* MODALS */
-.overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.88); backdrop-filter:blur(10px); z-index:999; align-items:center; justify-content:center; padding:1rem; }
-.overlay.on { display:flex; }
-.modal { background:var(--g900); border:1px solid var(--border); border-radius:4px; padding:1.75rem; width:100%; max-width:380px; animation:mIn 0.2s ease; }
-@keyframes mIn { from{transform:translateY(8px);opacity:0} to{transform:translateY(0);opacity:1} }
-.mtitle { font-size:1.1rem; font-weight:800; letter-spacing:-0.02em; margin-bottom:0.2rem; }
-.msub { font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--g600); margin-bottom:1.3rem; }
-.wopt { display:flex; align-items:center; gap:0.8rem; padding:0.85rem; border:1px solid var(--border); border-radius:3px; cursor:pointer; margin-bottom:0.45rem; transition:all 0.15s; }
-.wopt:hover { border-color:var(--g400); background:var(--black); }
-.wico { font-size:1.3rem; width:30px; text-align:center; }
-.wn { font-size:0.85rem; font-weight:700; }
-.wd { font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:var(--g600); margin-top:0.1rem; }
-.cbox { border:1px solid var(--border); border-radius:3px; padding:0.85rem; margin-bottom:1rem; display:flex; justify-content:space-between; align-items:center; }
-.clabel { font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:var(--g600); letter-spacing:0.1em; text-transform:uppercase; display:block; margin-bottom:0.2rem; }
-.cval { font-size:0.92rem; font-weight:800; }
-.oval { font-family:'JetBrains Mono',monospace; font-size:1rem; color:var(--g400); }
-.ilabel { font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:var(--g600); letter-spacing:0.1em; text-transform:uppercase; display:block; margin-bottom:0.4rem; }
-.iwrap { display:flex; align-items:center; border:1px solid var(--border); border-radius:3px; margin-bottom:0.6rem; transition:border-color 0.15s; }
-.iwrap:focus-within { border-color:var(--g400); }
-.einput { flex:1; background:transparent; border:none; outline:none; padding:0.7rem 0.85rem; font-family:'JetBrains Mono',monospace; font-size:1.05rem; color:var(--white); }
-.ethlabel { font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:var(--g600); padding:0 0.85rem; }
-.qrow { display:flex; gap:0.3rem; margin-bottom:1rem; }
-.qbtn { flex:1; padding:0.35rem; background:transparent; border:1px solid var(--border); color:var(--g600); font-family:'JetBrains Mono',monospace; font-size:0.6rem; cursor:pointer; border-radius:2px; transition:all 0.15s; }
-.qbtn:hover { border-color:var(--g400); color:var(--white); }
-.retrow { display:flex; justify-content:space-between; align-items:center; padding:0.65rem 0; border-top:1px solid var(--border); border-bottom:1px solid var(--border); margin-bottom:1rem; }
-.retlabel { font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--g600); }
-.retval { font-family:'JetBrains Mono',monospace; font-size:0.92rem; color:var(--white); }
-.mactions { display:flex; gap:0.4rem; }
-.btn-full { width:100%; }
+.teams{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.1rem;}
+.team{text-align:center;}
+.tflag{font-size:1.9rem;display:block;margin-bottom:0.25rem;}
+.tname{font-size:0.9rem;font-weight:800;letter-spacing:-0.02em;}
+.vs{font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:var(--g600);letter-spacing:0.2em;}
+
+.pbar-wrap{margin-bottom:1rem;}
+.prow{display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem;}
+.pname{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--g600);width:26px;text-align:right;flex-shrink:0;}
+.pbg{flex:1;height:2px;background:var(--border);}
+.pfill{height:100%;background:var(--white);transition:width 0.8s ease;}
+.ppct{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--g400);width:26px;flex-shrink:0;}
+
+.cmeta{display:flex;justify-content:space-between;margin-bottom:0.9rem;flex-wrap:wrap;gap:0.25rem;}
+.cmi{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--g600);}
+.cmi span{color:var(--g400);}
+
+.brow{display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;}
+.bbtn{font-family:'Syne',sans-serif;font-size:0.62rem;font-weight:700;letter-spacing:0.03em;padding:0.52rem 0.3rem;background:transparent;border:1px solid var(--border);color:var(--g400);cursor:pointer;border-radius:2px;transition:all 0.15s;text-transform:uppercase;}
+.bbtn:hover{border-color:var(--white);color:var(--white);background:var(--g900);}
+.closed-label{font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:var(--g600);text-align:center;padding:0.4rem 0;}
+
+/* BET MODAL */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);backdrop-filter:blur(10px);z-index:999;align-items:center;justify-content:center;padding:1rem;}
+.overlay.on{display:flex;}
+.modal{background:var(--g900);border:1px solid var(--border);border-radius:4px;padding:1.75rem;width:100%;max-width:380px;animation:mIn 0.2s ease;}
+@keyframes mIn{from{transform:translateY(8px);opacity:0}to{transform:translateY(0);opacity:1}}
+.mtitle{font-size:1.1rem;font-weight:800;letter-spacing:-0.02em;margin-bottom:0.2rem;}
+.msub{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--g600);margin-bottom:1.3rem;}
+.cbox{border:1px solid var(--border);border-radius:3px;padding:0.85rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;}
+.clabel{font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--g600);letter-spacing:0.1em;text-transform:uppercase;display:block;margin-bottom:0.2rem;}
+.cval{font-size:0.92rem;font-weight:800;}
+.oval{font-family:'JetBrains Mono',monospace;font-size:0.9rem;color:var(--g400);}
+.ilabel{font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--g600);letter-spacing:0.1em;text-transform:uppercase;display:block;margin-bottom:0.4rem;}
+.iwrap{display:flex;align-items:center;border:1px solid var(--border);border-radius:3px;margin-bottom:0.6rem;transition:border-color 0.15s;}
+.iwrap:focus-within{border-color:var(--g400);}
+.einput{flex:1;background:transparent;border:none;outline:none;padding:0.7rem 0.85rem;font-family:'JetBrains Mono',monospace;font-size:1.05rem;color:var(--white);}
+.ethlabel{font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--g600);padding:0 0.85rem;}
+.qrow{display:flex;gap:0.3rem;margin-bottom:1rem;}
+.qbtn{flex:1;padding:0.35rem;background:transparent;border:1px solid var(--border);color:var(--g600);font-family:'JetBrains Mono',monospace;font-size:0.6rem;cursor:pointer;border-radius:2px;transition:all 0.15s;}
+.qbtn:hover{border-color:var(--g400);color:var(--white);}
+.retrow{display:flex;justify-content:space-between;align-items:center;padding:0.65rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:1rem;}
+.retlabel{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--g600);}
+.retval{font-family:'JetBrains Mono',monospace;font-size:0.92rem;color:var(--white);}
+.mactions{display:flex;gap:0.4rem;}
+.btn-full{width:100%;}
+
+/* MY BETS */
+.mybet-card{background:var(--g900);border:1px solid var(--border);padding:1.1rem;margin-bottom:1px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;}
+.mybet-info .match-label{font-size:0.85rem;font-weight:700;}
+.mybet-info .bet-detail{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--g600);margin-top:0.2rem;}
 
 /* ADMIN */
-.admin-hero { background:linear-gradient(135deg,rgba(251,191,36,0.05),transparent); border-bottom:1px solid rgba(251,191,36,0.15); padding:2rem 1.5rem; }
-.admin-title { font-size:1.5rem; font-weight:800; letter-spacing:-0.03em; color:var(--gold); margin-bottom:0.3rem; }
-.admin-sub { font-family:'JetBrains Mono',monospace; font-size:0.65rem; color:var(--g600); }
-.admin-grid { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--border); border:1px solid var(--border); margin-bottom:1px; }
-@media(max-width:640px) { .admin-grid { grid-template-columns:1fr; } }
-.acard { background:var(--black); padding:1.3rem; }
-.acard-title { font-size:0.65rem; font-weight:700; letter-spacing:0.15em; text-transform:uppercase; color:var(--g400); margin-bottom:1.1rem; display:flex; align-items:center; gap:0.5rem; }
-.acard-title::before { content:''; width:3px; height:0.9rem; background:var(--gold); }
-.form-group { margin-bottom:0.75rem; }
-.flabel { font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:var(--g600); letter-spacing:0.1em; text-transform:uppercase; display:block; margin-bottom:0.35rem; }
-.finput { width:100%; background:var(--g900); border:1px solid var(--border); color:var(--white); font-family:'JetBrains Mono',monospace; font-size:0.8rem; padding:0.6rem 0.8rem; border-radius:3px; outline:none; transition:border-color 0.15s; }
-.finput:focus { border-color:var(--g400); }
-.fselect { width:100%; background:var(--g900); border:1px solid var(--border); color:var(--white); font-family:'JetBrains Mono',monospace; font-size:0.8rem; padding:0.6rem 0.8rem; border-radius:3px; outline:none; }
-.fselect option { background:var(--g900); }
-.match-list-admin { display:flex; flex-direction:column; gap:1px; }
-.arow { background:var(--g900); padding:0.9rem; display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; border-bottom:1px solid var(--border); }
-.arow:last-child { border-bottom:none; }
-.arow-info { flex:1; }
-.arow-teams { font-size:0.85rem; font-weight:700; }
-.arow-meta { font-family:'JetBrains Mono',monospace; font-size:0.55rem; color:var(--g600); margin-top:0.2rem; }
-.arow-actions { display:flex; gap:0.35rem; flex-wrap:wrap; }
-.abtn { font-family:'Syne',sans-serif; font-size:0.6rem; font-weight:700; padding:0.35rem 0.7rem; border-radius:2px; cursor:pointer; transition:all 0.15s; letter-spacing:0.05em; text-transform:uppercase; }
+.admin-hero{background:linear-gradient(135deg,rgba(251,191,36,0.05),transparent);border-bottom:1px solid rgba(251,191,36,0.15);padding:2rem 1.5rem;}
+.admin-title{font-size:1.5rem;font-weight:800;letter-spacing:-0.03em;color:var(--gold);margin-bottom:0.3rem;}
+.admin-sub{font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--g600);}
+.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);}
+@media(max-width:700px){.admin-grid{grid-template-columns:1fr;}}
+.acard{background:var(--black);padding:1.3rem;}
+.acard-title{font-size:0.65rem;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;color:var(--g400);margin-bottom:1.1rem;display:flex;align-items:center;gap:0.5rem;}
+.acard-title::before{content:'';width:3px;height:0.9rem;background:var(--gold);}
+.form-group{margin-bottom:0.75rem;}
+.flabel{font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--g600);letter-spacing:0.1em;text-transform:uppercase;display:block;margin-bottom:0.35rem;}
+.finput{width:100%;background:var(--g900);border:1px solid var(--border);color:var(--white);font-family:'JetBrains Mono',monospace;font-size:0.8rem;padding:0.6rem 0.8rem;border-radius:3px;outline:none;transition:border-color 0.15s;}
+.finput:focus{border-color:var(--g400);}
+.fselect{width:100%;background:var(--g900);border:1px solid var(--border);color:var(--white);font-family:'JetBrains Mono',monospace;font-size:0.8rem;padding:0.6rem 0.8rem;border-radius:3px;outline:none;}
+.arow{background:var(--g900);padding:0.9rem;display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;border-bottom:1px solid var(--border);}
+.arow:last-child{border-bottom:none;}
+.arow-info{flex:1;}
+.arow-teams{font-size:0.85rem;font-weight:700;}
+.arow-meta{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--g600);margin-top:0.2rem;}
+.arow-actions{display:flex;gap:0.35rem;flex-wrap:wrap;}
+.abtn{font-family:'Syne',sans-serif;font-size:0.6rem;font-weight:700;padding:0.35rem 0.7rem;border-radius:2px;cursor:pointer;transition:all 0.15s;letter-spacing:0.05em;text-transform:uppercase;}
+.quick-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0.5rem;}
+.qmatch-btn{background:var(--g900);border:1px solid var(--border);color:var(--g400);padding:0.7rem;border-radius:3px;cursor:pointer;text-align:left;transition:all 0.15s;font-family:'Syne',sans-serif;}
+.qmatch-btn:hover{border-color:var(--white);color:var(--white);}
+.qmatch-btn .qt{font-size:0.8rem;font-weight:700;display:block;margin-bottom:0.2rem;}
+.qmatch-btn .qs{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--g600);}
 
 /* RESULT MODAL */
-.rmodal { max-width:340px; }
-.result-opts { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.4rem; margin-bottom:1rem; }
-.ropt { padding:0.7rem 0.3rem; background:transparent; border:1px solid var(--border); color:var(--g400); font-family:'Syne',sans-serif; font-size:0.7rem; font-weight:700; cursor:pointer; border-radius:3px; transition:all 0.15s; text-align:center; }
-.ropt:hover, .ropt.sel { border-color:var(--white); color:var(--white); background:var(--g900); }
+.rmodal{max-width:340px;}
+.result-opts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.4rem;margin-bottom:1rem;}
+.ropt{padding:0.7rem 0.3rem;background:transparent;border:1px solid var(--border);color:var(--g400);font-family:'Syne',sans-serif;font-size:0.7rem;font-weight:700;cursor:pointer;border-radius:3px;transition:all 0.15s;text-align:center;line-height:1.4;}
+.ropt:hover,.ropt.sel{border-color:var(--white);color:var(--white);background:var(--g800);}
 
-/* LOADING / EMPTY */
-.loading { display:flex; align-items:center; gap:0.5rem; font-family:'JetBrains Mono',monospace; font-size:0.62rem; color:var(--g600); padding:2.5rem 0; }
-.spin { width:11px; height:11px; border:1px solid var(--border); border-top-color:var(--g400); border-radius:50%; animation:sp 0.8s linear infinite; }
-@keyframes sp { to{transform:rotate(360deg)} }
-.empty { padding:3rem 1.5rem; text-align:center; border:1px solid var(--border); }
-.empty-t { font-size:0.88rem; font-weight:800; color:var(--g600); margin-bottom:0.35rem; }
-.empty-s { font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--g800); }
+.loading{display:flex;align-items:center;gap:0.5rem;font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--g600);padding:2.5rem 0;}
+.spin{width:11px;height:11px;border:1px solid var(--border);border-top-color:var(--g400);border-radius:50%;animation:sp 0.8s linear infinite;}
+@keyframes sp{to{transform:rotate(360deg)}}
+.empty{padding:3rem 1.5rem;text-align:center;border:1px solid var(--border);}
+.empty-t{font-size:0.88rem;font-weight:800;color:var(--g600);margin-bottom:0.35rem;}
+.empty-s{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--g800);}
 
-/* TOAST */
-.toast { position:fixed; bottom:1.5rem; left:50%; transform:translateX(-50%) translateY(100px); background:var(--white); color:var(--black); font-family:'JetBrains Mono',monospace; font-size:0.7rem; padding:0.65rem 1.3rem; border-radius:3px; z-index:9999; transition:transform 0.3s ease; white-space:nowrap; letter-spacing:0.03em; max-width:90vw; overflow:hidden; text-overflow:ellipsis; }
-.toast.show { transform:translateX(-50%) translateY(0); }
+.toast{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%) translateY(100px);background:var(--white);color:var(--black);font-family:'JetBrains Mono',monospace;font-size:0.7rem;padding:0.65rem 1.3rem;border-radius:3px;z-index:9999;transition:transform 0.3s ease;white-space:nowrap;letter-spacing:0.03em;max-width:90vw;overflow:hidden;text-overflow:ellipsis;}
+.toast.show{transform:translateX(-50%) translateY(0);}
 
-/* MYBETS */
-.mybet-card { background:var(--g900); border:1px solid var(--border); padding:1.1rem; margin-bottom:1px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem; }
-.mybet-info .match-label { font-size:0.85rem; font-weight:700; }
-.mybet-info .bet-detail { font-family:'JetBrains Mono',monospace; font-size:0.6rem; color:var(--g600); margin-top:0.2rem; }
+footer{border-top:1px solid var(--border);padding:1.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;}
+.flogo{font-size:0.88rem;font-weight:800;letter-spacing:-0.02em;}
+.fmeta{font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--g600);}
+.fmeta a{color:var(--g400);text-decoration:none;}
 
-/* FOOTER */
-footer { border-top:1px solid var(--border); padding:1.5rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.75rem; }
-.flogo { font-size:0.88rem; font-weight:800; letter-spacing:-0.02em; }
-.fmeta { font-family:'JetBrains Mono',monospace; font-size:0.56rem; color:var(--g600); }
-.fmeta a { color:var(--g400); text-decoration:none; }
+@media(max-width:640px){
+  .hero h1{font-size:2.4rem;}
+  .stats-row{gap:1.5rem;}
+  .mgrid{grid-template-columns:1fr;}
+  nav{padding:0 1rem;}
+  .pill{display:none;}
+}
 </style>
 </head>
 <body>
 
-<!-- NAV -->
 <nav>
   <div class="logo"><div class="logo-dot"></div> CricketChain</div>
   <div class="nav-r">
     <div class="pill"><div class="live-dot"></div> Sepolia</div>
-    <div class="waddr" id="waddr"></div>
-    <button class="btn btn-w" id="connectBtn" onclick="openWalletModal()">Connect</button>
+    <div id="waddr"></div>
+    <button class="btn btn-w" id="connectBtn" onclick="window._appkit&&window._appkit.open()">Connect</button>
   </div>
 </nav>
 
-<!-- TABS -->
 <div class="tabs">
   <div class="tab active" onclick="switchTab('markets')" id="tab-markets">Markets</div>
   <div class="tab" onclick="switchTab('mybets')" id="tab-mybets">My Bets</div>
-  <div class="tab tab-admin" onclick="switchTab('admin')" id="tab-admin">⚡ Admin</div>
-</div>
-
-<!-- WALLET MODAL -->
-<div class="overlay" id="walletModal">
-  <div class="modal">
-    <div class="mtitle">Connect Wallet</div>
-    <div class="msub">// SELECT PROVIDER</div>
-    <div class="wopt" onclick="connectWallet()">
-      <div class="wico">🦊</div>
-      <div><div class="wn">MetaMask</div><div class="wd">Browser extension · Sepolia Testnet</div></div>
-    </div>
-    <div class="wopt" onclick="toast('WalletConnect coming soon!')">
-      <div class="wico">🔗</div>
-      <div><div class="wn">WalletConnect</div><div class="wd">Scan QR with mobile wallet</div></div>
-    </div>
-    <div style="margin-top:1rem"><button class="btn btn-o btn-full" onclick="closeModal('walletModal')">Cancel</button></div>
-  </div>
+  <div class="tab" onclick="switchTab('admin')" id="tab-admin" style="color:var(--gold);display:none;">⚡ Admin</div>
 </div>
 
 <!-- BET MODAL -->
@@ -235,7 +341,7 @@ footer { border-top:1px solid var(--border); padding:1.5rem; display:flex; justi
     <div class="msub" id="betLabel">// MATCH</div>
     <div class="cbox">
       <div><span class="clabel">Your Pick</span><div class="cval" id="betPick">—</div></div>
-      <div class="oval">Live Pool</div>
+      <div class="oval" id="betPool">—</div>
     </div>
     <label class="ilabel">Stake Amount</label>
     <div class="iwrap">
@@ -267,7 +373,7 @@ footer { border-top:1px solid var(--border); padding:1.5rem; display:flex; justi
     <div class="result-opts">
       <button class="ropt" onclick="selResult(1)" id="ropt1">Team 1<br>Wins</button>
       <button class="ropt" onclick="selResult(2)" id="ropt2">Team 2<br>Wins</button>
-      <button class="ropt" onclick="selResult(3)" id="ropt3">Draw</button>
+      <button class="ropt" onclick="selResult(3)" id="ropt3">🤝<br>Draw</button>
     </div>
     <div class="mactions">
       <button class="btn btn-w btn-full" onclick="submitResult()">Submit Result ↗</button>
@@ -278,7 +384,7 @@ footer { border-top:1px solid var(--border); padding:1.5rem; display:flex; justi
 
 <div class="toast" id="toast"></div>
 
-<!-- ===== MARKETS PAGE ===== -->
+<!-- MARKETS -->
 <div class="page active" id="page-markets">
   <div class="hero">
     <div class="hero-tag">// On-chain · Ethereum Sepolia · Built for Rialo Protocol</div>
@@ -288,7 +394,6 @@ footer { border-top:1px solid var(--border); padding:1.5rem; display:flex; justi
       <div class="stats-row">
         <div class="stat"><span class="stat-n" id="s-pool">—</span><span class="stat-l">Total Pool</span></div>
         <div class="stat"><span class="stat-n" id="s-matches">—</span><span class="stat-l">Markets</span></div>
-        <div class="stat"><span class="stat-n" id="s-bets">—</span><span class="stat-l">Bets</span></div>
       </div>
     </div>
   </div>
@@ -307,33 +412,34 @@ footer { border-top:1px solid var(--border); padding:1.5rem; display:flex; justi
   </div>
 </div>
 
-<!-- ===== MY BETS PAGE ===== -->
+<!-- MY BETS -->
 <div class="page" id="page-mybets">
   <div class="sec">
     <div class="sec-head">
       <div class="sec-title">My Predictions</div>
       <div class="sec-count" id="myBetsCount">—</div>
     </div>
-    <div id="myBetsContainer"><div class="empty"><div class="empty-t">Connect wallet to view</div><div class="empty-s">// Your predictions will appear here</div></div></div>
+    <div id="myBetsContainer">
+      <div class="empty"><div class="empty-t">Connect wallet to view</div><div class="empty-s">// Your predictions will appear here</div></div>
+    </div>
   </div>
 </div>
 
-<!-- ===== ADMIN PAGE ===== -->
+<!-- ADMIN -->
 <div class="page" id="page-admin">
   <div class="admin-hero">
     <div class="admin-title">⚡ Admin Panel</div>
-    <div class="admin-sub">// Only contract owner can use this panel</div>
+    <div class="admin-sub">// Only accessible by contract owner</div>
   </div>
   <div class="sec">
     <div class="admin-grid">
-      <!-- CREATE MATCH -->
       <div class="acard">
         <div class="acard-title">Create New Match</div>
         <div class="form-group">
           <label class="flabel">Match Type</label>
           <select class="fselect" id="f-type">
-            <option>T20 World Cup</option>
-            <option>ICC Champions Trophy</option>
+            <option>ICC Champions Trophy 2025</option>
+            <option>T20 World Cup 2026</option>
             <option>Test Match</option>
             <option>ODI Series</option>
             <option>T20I Series</option>
@@ -365,30 +471,22 @@ footer { border-top:1px solid var(--border); padding:1.5rem; display:flex; justi
           <input class="finput" id="f-venue" placeholder="e.g. Eden Gardens, Kolkata">
         </div>
         <div class="form-group">
-          <label class="flabel">Match Start Date & Time</label>
+          <label class="flabel">Match Start (Date & Time)</label>
           <input class="finput" type="datetime-local" id="f-time">
         </div>
         <button class="btn btn-w btn-full" onclick="createMatch()" style="margin-top:0.5rem">Create Match on Chain ↗</button>
       </div>
 
-      <!-- MANAGE MATCHES -->
       <div class="acard">
         <div class="acard-title">Manage Matches</div>
         <div id="adminMatchList"><div class="loading"><div class="spin"></div> Loading...</div></div>
       </div>
     </div>
 
-    <!-- QUICK ADD REAL MATCHES -->
-    <div style="border:1px solid var(--border); margin-top:1px;">
+    <div style="border:1px solid var(--border);margin-top:1px;">
       <div class="acard">
         <div class="acard-title">Quick Add — Real 2025 Matches</div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0.5rem;">
-          ${quickMatches().map((m,i) => `
-          <button class="btn btn-o" onclick="quickAdd(${i})" style="text-align:left;padding:0.6rem 0.8rem;font-size:0.65rem;line-height:1.4">
-            ${m.flag1} ${m.team1} vs ${m.flag2} ${m.team2}<br>
-            <span style="color:var(--g600);font-size:0.55rem">${m.type} · ${m.date}</span>
-          </button>`).join('')}
-        </div>
+        <div class="quick-grid" id="quickGrid"></div>
       </div>
     </div>
   </div>
@@ -400,12 +498,8 @@ footer { border-top:1px solid var(--border); padding:1.5rem; display:flex; justi
 </footer>
 
 <script>
-// ============================================================
-// CONFIG
-// ============================================================
-const CA = "0x4b57B653CE1f9422772015717FC0Ebd920EC16E8";
-const CHAIN = "0xaa36a7";
-const ABI = [
+const CA = '0x4b57B653CE1f9422772015717FC0Ebd920EC16E8'
+const ABI_UMD = [
   "function matchCount() view returns (uint256)",
   "function getAllMatches() view returns (tuple(uint256 id,string team1,string team2,string matchType,string venue,uint256 startTime,uint8 status,uint8 result,uint256 totalPool,uint256 team1Pool,uint256 team2Pool,uint256 drawPool)[])",
   "function predict(uint256,uint8) payable",
@@ -417,141 +511,72 @@ const ABI = [
   "function resolveMatch(uint256,uint8)",
   "function cancelMatch(uint256)",
   "function owner() view returns (address)"
-];
+]
 
-const FLAGS = {IND:'🇮🇳',AUS:'🇦🇺',ENG:'🏴󠁧󠁢󠁥󠁮󠁧󠁿',SA:'🇿🇦',NZ:'🇳🇿',PAK:'🇵🇰',BAN:'🇧🇩',SL:'🇱🇰',WI:'🌴',AFG:'🇦🇫',ZIM:'🇿🇼',IRE:'🇮🇪'};
-function gf(t) { for(const[k,f] of Object.entries(FLAGS)) if(t&&t.toUpperCase().includes(k)) return f; return '🏏'; }
+const FLAGS = {IND:'🇮🇳',AUS:'🇦🇺',ENG:'🏴󠁧󠁢󠁥󠁮󠁧󠁿',SA:'🇿🇦',NZ:'🇳🇿',PAK:'🇵🇰',BAN:'🇧🇩',SL:'🇱🇰',WI:'🌴',AFG:'🇦🇫',ZIM:'🇿🇼',IRE:'🇮🇪'}
+function gf(t){for(const[k,f]of Object.entries(FLAGS))if(t&&t.toUpperCase().includes(k))return f;return'🏏'}
 
-// Quick add real 2025 matches
-function quickMatches() {
-  return [
-    {team1:'IND',team2:'AUS',flag1:'🇮🇳',flag2:'🇦🇺',type:'ICC Champions Trophy',date:'Mar 2025',venue:'Dubai Int\'l Stadium',ts:1741600000},
-    {team1:'PAK',team2:'NZ',flag1:'🇵🇰',flag2:'🇳🇿',type:'ICC Champions Trophy',date:'Mar 2025',venue:'Rawalpindi',ts:1741700000},
-    {team1:'ENG',team2:'SA',flag1:'🏴󠁧󠁢󠁥󠁮󠁧󠁿',flag2:'🇿🇦',type:'ICC Champions Trophy',date:'Mar 2025',venue:'Karachi',ts:1741800000},
-    {team1:'BAN',team2:'AFG',flag1:'🇧🇩',flag2:'🇦🇫',type:'T20I Series',date:'Mar 2025',venue:'Dhaka',ts:1741900000},
-    {team1:'IND',team2:'ENG',flag1:'🇮🇳',flag2:'🏴󠁧󠁢󠁥󠁮󠁧󠁿',type:'T20I Series',date:'Mar 2025',venue:'Ahmedabad',ts:1742000000},
-    {team1:'AUS',team2:'WI',flag1:'🇦🇺',flag2:'🌴',type:'ODI Series',date:'Mar 2025',venue:'Barbados',ts:1742100000},
-    {team1:'SL',team2:'NZ',flag1:'🇱🇰',flag2:'🇳🇿',type:'Test Match',date:'Apr 2025',venue:'Colombo',ts:1743000000},
-    {team1:'PAK',team2:'BAN',flag1:'🇵🇰',flag2:'🇧🇩',type:'ODI Series',date:'Apr 2025',venue:'Lahore',ts:1743200000},
-  ];
+const QUICK_MATCHES = [
+  {team1:'IND',team2:'AUS',type:'ICC Champions Trophy 2025',venue:'Dubai Int\'l Stadium',ts:Math.floor(Date.now()/1000)+86400},
+  {team1:'PAK',team2:'NZ',type:'ICC Champions Trophy 2025',venue:'Rawalpindi Cricket Stadium',ts:Math.floor(Date.now()/1000)+172800},
+  {team1:'ENG',team2:'SA',type:'ICC Champions Trophy 2025',venue:'National Stadium Karachi',ts:Math.floor(Date.now()/1000)+259200},
+  {team1:'BAN',team2:'AFG',type:'T20I Series',venue:'Shere Bangla Stadium, Dhaka',ts:Math.floor(Date.now()/1000)+345600},
+  {team1:'IND',team2:'ENG',type:'T20I Series',venue:'Narendra Modi Stadium',ts:Math.floor(Date.now()/1000)+432000},
+  {team1:'AUS',team2:'WI',type:'ODI Series',venue:'Kensington Oval, Barbados',ts:Math.floor(Date.now()/1000)+518400},
+  {team1:'SL',team2:'NZ',type:'Test Match',venue:'R. Premadasa Stadium, Colombo',ts:Math.floor(Date.now()/1000)+604800},
+  {team1:'PAK',team2:'BAN',type:'ODI Series',venue:'Gaddafi Stadium, Lahore',ts:Math.floor(Date.now()/1000)+691200},
+]
+
+let curBet={}, curResult={matchId:null,team1:'',team2:''}, selRes=null
+
+// ---- TABS ----
+function switchTab(name){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'))
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'))
+  document.getElementById('page-'+name).classList.add('active')
+  document.getElementById('tab-'+name).classList.add('active')
+  if(name==='mybets') loadMyBets()
+  if(name==='admin') loadAdminMatches()
 }
 
-// ============================================================
-// STATE
-// ============================================================
-let provider, signer, contract, userAddr, isOwner = false;
-let curBet = {}, curResult = {matchId:null, team1:'', team2:''}, selRes = null;
+function closeModal(id){document.getElementById(id).classList.remove('on')}
 
-// ============================================================
-// TABS
-// ============================================================
-function switchTab(name) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('page-'+name).classList.add('active');
-  document.getElementById('tab-'+name).classList.add('active');
-  if (name === 'mybets' && userAddr) loadMyBets();
-  if (name === 'admin') loadAdminMatches();
-}
-
-// ============================================================
-// WALLET
-// ============================================================
-function openWalletModal() { document.getElementById('walletModal').classList.add('on'); }
-function closeModal(id) { document.getElementById(id).classList.remove('on'); }
-
-async function connectWallet() {
-  closeModal('walletModal');
-  if (!window.ethereum) { toast('MetaMask not found!'); return; }
-  try {
-    try {
-      await window.ethereum.request({method:'wallet_switchEthereumChain',params:[{chainId:CHAIN}]});
-    } catch(e) {
-      if(e.code===4902) await window.ethereum.request({method:'wallet_addEthereumChain',params:[{chainId:CHAIN,chainName:'Sepolia Testnet',nativeCurrency:{name:'ETH',symbol:'ETH',decimals:18},rpcUrls:['https://rpc.sepolia.org'],blockExplorerUrls:['https://sepolia.etherscan.io']}]});
+// ---- LOAD MATCHES ----
+async function loadMatches(){
+  const el=document.getElementById('matchContainer')
+  el.innerHTML='<div class="loading"><div class="spin"></div> Reading from blockchain...</div>'
+  try{
+    const rp=new ethers.JsonRpcProvider('https://rpc.sepolia.org')
+    const rc=new ethers.Contract(CA,ABI_UMD,rp)
+    const count=await rc.matchCount()
+    const matches=await rc.getAllMatches()
+    let pool=0n,active=0,cards=[]
+    for(const m of matches){
+      pool+=m.totalPool
+      if(m.status===0n||m.status===1n){cards.push(buildCard(m));active++}
     }
-    provider = new ethers.BrowserProvider(window.ethereum);
-    await provider.send("eth_requestAccounts",[]);
-    signer = await provider.getSigner();
-    userAddr = await signer.getAddress();
-    contract = new ethers.Contract(CA, ABI, signer);
-
-    // Check owner
-    try {
-      const owner = await contract.owner();
-      isOwner = owner.toLowerCase() === userAddr.toLowerCase();
-    } catch(e) {}
-
-    const short = userAddr.slice(0,6)+'...'+userAddr.slice(-4);
-    document.getElementById('waddr').textContent = short;
-    document.getElementById('waddr').style.display = 'block';
-    const btn = document.getElementById('connectBtn');
-    btn.textContent = isOwner ? '👑 Owner' : short;
-    if(isOwner) { btn.style.background='transparent'; btn.style.color=GOLD; btn.style.border='1px solid rgba(251,191,36,0.4)'; }
-    else { btn.style.background='#0d0d0d'; btn.style.color='#555'; btn.style.border='1px solid #1f1f1f'; btn.style.fontSize='0.65rem'; }
-
-    toast('✓ Connected' + (isOwner?' · Owner':''));
-    loadMatches();
-  } catch(err) {
-    toast('✗ '+(err.message||'Failed').slice(0,50));
+    document.getElementById('s-matches').textContent=count.toString()
+    document.getElementById('s-pool').textContent=parseFloat(ethers.formatEther(pool)).toFixed(4)+' ETH'
+    document.getElementById('mc').textContent=active+' active'
+    el.innerHTML=cards.length===0
+      ?'<div class="empty"><div class="empty-t">No active markets yet</div><div class="empty-s">// Admin needs to add matches via Admin Panel</div></div>'
+      :'<div class="mgrid">'+cards.join('')+'</div>'
+  }catch(err){
+    el.innerHTML='<div class="empty"><div class="empty-t">Could not load</div><div class="empty-s">// '+( err.message||'').slice(0,60)+'</div></div>'
+    document.getElementById('mc').textContent='Error'
   }
 }
 
-const GOLD = '#fbbf24';
-
-// ============================================================
-// LOAD MATCHES
-// ============================================================
-async function loadMatches() {
-  const el = document.getElementById('matchContainer');
-  el.innerHTML = '<div class="loading"><div class="spin"></div> Reading from blockchain...</div>';
-  try {
-    let rc = contract;
-    if (!rc) {
-      const rp = new ethers.JsonRpcProvider('https://rpc.sepolia.org');
-      rc = new ethers.Contract(CA, ABI, rp);
-    }
-    const count = await rc.matchCount();
-    const matches = await rc.getAllMatches();
-
-    let pool = 0n, active = 0, betsCount = 0, html = '';
-    const cards = [];
-
-    for (const m of matches) {
-      pool += m.totalPool;
-      if (m.status === 0n || m.status === 1n) {
-        cards.push(buildCard(m));
-        active++;
-      }
-    }
-
-    document.getElementById('s-matches').textContent = count.toString();
-    document.getElementById('s-pool').textContent = parseFloat(ethers.formatEther(pool)).toFixed(4)+' ETH';
-    document.getElementById('s-bets').textContent = '—';
-    document.getElementById('mc').textContent = active+' active';
-
-    if (cards.length === 0) {
-      el.innerHTML = '<div class="empty"><div class="empty-t">No active markets</div><div class="empty-s">// Admin needs to create matches</div></div>';
-    } else {
-      el.innerHTML = '<div class="mgrid">'+cards.join('')+'</div>';
-    }
-  } catch(err) {
-    el.innerHTML = '<div class="empty"><div class="empty-t">Could not load</div><div class="empty-s">// '+( err.message||'').slice(0,60)+'</div></div>';
-  }
-}
-
-function buildCard(m) {
-  const sMap={0n:'Open',1n:'Closed',2n:'Resolved',3n:'Cancelled'};
-  const sCls={0n:'s0',1n:'s1',2n:'s2',3n:'s3'};
-  const pool = parseFloat(ethers.formatEther(m.totalPool)).toFixed(4);
-  const t1 = Number(m.team1Pool)||1, t2 = Number(m.team2Pool)||1;
-  const tot = t1+t2, p1 = Math.round(t1/tot*100), p2 = 100-p1;
-  const dt = new Date(Number(m.startTime)*1000).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
-  const open = m.status===0n;
+function buildCard(m){
+  const sMap={0n:'Open',1n:'Closed',2n:'Resolved',3n:'Cancelled'}
+  const sCls={0n:'s0',1n:'s1',2n:'s2',3n:'s3'}
+  const pool=parseFloat(ethers.formatEther(m.totalPool)).toFixed(4)
+  const t1=Number(m.team1Pool)||1,t2=Number(m.team2Pool)||1
+  const tot=t1+t2,p1=Math.round(t1/tot*100),p2=100-p1
+  const dt=new Date(Number(m.startTime)*1000).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})
+  const open=m.status===0n
   return `<div class="mcard">
-    <div class="mcard-head">
-      <span class="mtype">${m.matchType} · #${m.id}</span>
-      <span class="sbadge ${sCls[m.status]}">${sMap[m.status]}</span>
-    </div>
+    <div class="mcard-head"><span class="mtype">${m.matchType} · #${m.id}</span><span class="sbadge ${sCls[m.status]}">${sMap[m.status]}</span></div>
     <div class="teams">
       <div class="team"><span class="tflag">${gf(m.team1)}</span><div class="tname">${m.team1}</div></div>
       <div class="vs">VS</div>
@@ -566,227 +591,214 @@ function buildCard(m) {
       <span class="cmi">Venue: <span>${m.venue}</span></span>
       <span class="cmi">Start: <span>${dt}</span></span>
     </div>
-    ${open ? `<div class="brow">
-      <button class="bbtn" onclick="openBet(${m.id},'${m.team1}',1,'${m.matchType}','${m.team2}')">${gf(m.team1)} ${m.team1} Wins</button>
-      <button class="bbtn" onclick="openBet(${m.id},'${m.team2}',2,'${m.matchType}','${m.team1}')">${gf(m.team2)} ${m.team2} Wins</button>
-    </div>` : `<div class="closed-label">Market ${sMap[m.status]}</div>`}
-  </div>`;
+    ${open?`<div class="brow">
+      <button class="bbtn" onclick="openBet(${m.id},'${m.team1}',1,'${m.matchType}','${m.team2}','${pool}')">${gf(m.team1)} ${m.team1} Wins</button>
+      <button class="bbtn" onclick="openBet(${m.id},'${m.team2}',2,'${m.matchType}','${m.team1}','${pool}')">${gf(m.team2)} ${m.team2} Wins</button>
+    </div>`:`<div class="closed-label">Market ${sMap[m.status]}</div>`}
+  </div>`
 }
 
-// ============================================================
-// BET
-// ============================================================
-function openBet(matchId, team, choice, type, opp) {
-  if (!userAddr) { openWalletModal(); return; }
-  curBet = {matchId, team, choice, type, opp};
-  document.getElementById('betLabel').textContent = `// ${team} VS ${opp} — ${type}`;
-  document.getElementById('betPick').textContent = `${gf(team)} ${team} WINS`;
-  updateRet();
-  document.getElementById('betModal').classList.add('on');
+// ---- BET ----
+function openBet(matchId,team,choice,type,opp,pool){
+  if(!window._userAddr){window._appkit&&window._appkit.open();return}
+  curBet={matchId,team,choice,type,opp}
+  document.getElementById('betLabel').textContent=`// ${team} VS ${opp} — ${type}`
+  document.getElementById('betPick').textContent=`${gf(team)} ${team} WINS`
+  document.getElementById('betPool').textContent=`Pool: ${pool} ETH`
+  updateRet()
+  document.getElementById('betModal').classList.add('on')
 }
-function setAmt(v) { document.getElementById('betAmt').value=v; updateRet(); }
-function updateRet() {
-  const a = parseFloat(document.getElementById('betAmt').value)||0;
-  document.getElementById('retVal').textContent = (a*1.9).toFixed(4)+' ETH (est.)';
+function setAmt(v){document.getElementById('betAmt').value=v;updateRet()}
+function updateRet(){
+  const a=parseFloat(document.getElementById('betAmt').value)||0
+  document.getElementById('retVal').textContent=(a*1.9).toFixed(4)+' ETH (est.)'
 }
-async function confirmBet() {
-  if (!contract) { toast('Connect wallet first'); return; }
-  const amt = parseFloat(document.getElementById('betAmt').value);
-  if (!amt||amt<0.001) { toast('Minimum 0.001 ETH'); return; }
-  closeModal('betModal');
-  toast('⏳ Confirm in MetaMask...');
-  try {
-    const tx = await contract.predict(curBet.matchId, curBet.choice, {value: ethers.parseEther(amt.toString())});
-    toast('⏳ Confirming on chain...');
-    await tx.wait();
-    toast('✓ Prediction placed on-chain!');
-    loadMatches();
-  } catch(err) {
-    toast('✗ '+(err.reason||err.message||'Failed').slice(0,60));
-  }
+async function confirmBet(){
+  const c=window._contract
+  if(!c){toast('Connect wallet first');return}
+  const amt=parseFloat(document.getElementById('betAmt').value)
+  if(!amt||amt<0.001){toast('Minimum 0.001 ETH');return}
+  closeModal('betModal')
+  toast('⏳ Confirm in wallet...')
+  try{
+    const tx=await c.predict(curBet.matchId,curBet.choice,{value:ethers.parseEther(amt.toString())})
+    toast('⏳ Confirming on chain...')
+    await tx.wait()
+    toast('✓ Prediction placed on-chain!')
+    loadMatches()
+  }catch(err){toast('✗ '+(err.reason||err.message||'Failed').slice(0,60))}
 }
 
-// ============================================================
-// MY BETS
-// ============================================================
-async function loadMyBets() {
-  if (!userAddr||!contract) {
-    document.getElementById('myBetsContainer').innerHTML = '<div class="empty"><div class="empty-t">Connect wallet first</div></div>';
-    return;
+// ---- MY BETS ----
+async function loadMyBets(){
+  const ua=window._userAddr
+  if(!ua){
+    document.getElementById('myBetsContainer').innerHTML='<div class="empty"><div class="empty-t">Connect wallet first</div></div>'
+    return
   }
-  try {
-    const matches = await contract.getAllMatches();
-    let html='', n=0;
-    for (const m of matches) {
-      const p = await contract.getUserPrediction(m.id, userAddr);
-      if (p.amount>0n) {
-        n++;
-        const pick = p.choice===1n?m.team1:p.choice===2n?m.team2:'Draw';
-        const amt = parseFloat(ethers.formatEther(p.amount)).toFixed(4);
-        const sMap={0n:'Open',1n:'Closed',2n:'Resolved',3n:'Cancelled'};
-        const won = m.status===2n && p.choice===m.result;
-        const canClaim = won && !p.claimed;
-        html += `<div class="mybet-card">
+  const rp=new ethers.JsonRpcProvider('https://rpc.sepolia.org')
+  const rc=new ethers.Contract(CA,ABI_UMD,rp)
+  try{
+    const matches=await rc.getAllMatches()
+    let html='',n=0
+    for(const m of matches){
+      const p=await rc.getUserPrediction(m.id,ua)
+      if(p.amount>0n){
+        n++
+        const pick=p.choice===1n?m.team1:p.choice===2n?m.team2:'Draw'
+        const amt=parseFloat(ethers.formatEther(p.amount)).toFixed(4)
+        const sMap={0n:'Open',1n:'Closed',2n:'Resolved',3n:'Cancelled'}
+        const won=m.status===2n&&p.choice===m.result
+        const canClaim=won&&!p.claimed
+        html+=`<div class="mybet-card">
           <div class="mybet-info">
             <div class="match-label">${gf(m.team1)} ${m.team1} vs ${gf(m.team2)} ${m.team2}</div>
-            <div class="bet-detail">Pick: ${gf(pick)} ${pick} · Staked: ${amt} ETH · ${p.claimed?'Claimed':won?'🏆 Won':sMap[m.status]}</div>
+            <div class="bet-detail">Pick: ${gf(pick)} ${pick} · Staked: ${amt} ETH · ${p.claimed?'✓ Claimed':won?'🏆 Won':sMap[m.status]}</div>
           </div>
           ${canClaim?`<button class="btn btn-g" onclick="claimReward(${m.id})">Claim ↗</button>`:''}
-        </div>`;
+        </div>`
       }
     }
-    document.getElementById('myBetsCount').textContent = n+' predictions';
-    document.getElementById('myBetsContainer').innerHTML = n===0
-      ? '<div class="empty"><div class="empty-t">No predictions yet</div><div class="empty-s">// Place your first bet in Markets tab</div></div>'
-      : html;
-  } catch(e) { console.error(e); }
+    document.getElementById('myBetsCount').textContent=n+' predictions'
+    document.getElementById('myBetsContainer').innerHTML=n===0
+      ?'<div class="empty"><div class="empty-t">No predictions yet</div><div class="empty-s">// Place your first bet in Markets tab</div></div>'
+      :html
+  }catch(e){console.error(e)}
 }
 
-async function claimReward(id) {
-  try {
-    toast('⏳ Claiming...');
-    const tx = await contract.claimReward(id);
-    await tx.wait();
-    toast('✓ Reward claimed!');
-    loadMyBets();
-  } catch(e) { toast('✗ '+(e.reason||e.message||'Failed').slice(0,60)); }
+async function claimReward(id){
+  const c=window._contract
+  if(!c)return
+  try{
+    toast('⏳ Claiming reward...')
+    const tx=await c.claimReward(id)
+    await tx.wait()
+    toast('✓ Reward claimed!')
+    loadMyBets()
+  }catch(e){toast('✗ '+(e.reason||e.message||'Failed').slice(0,60))}
 }
 
-// ============================================================
-// ADMIN
-// ============================================================
-async function createMatch() {
-  if (!contract) { toast('Connect wallet first'); return; }
-  if (!isOwner) { toast('Only owner can create matches'); return; }
-  const team1 = document.getElementById('f-team1').value;
-  const team2 = document.getElementById('f-team2').value;
-  const type = document.getElementById('f-type').value;
-  const venue = document.getElementById('f-venue').value || 'TBD';
-  const timeVal = document.getElementById('f-time').value;
-  if (!timeVal) { toast('Set match start time'); return; }
-  if (team1===team2) { toast('Teams must be different'); return; }
-  const ts = Math.floor(new Date(timeVal).getTime()/1000);
-  if (ts <= Math.floor(Date.now()/1000)) { toast('Start time must be in future'); return; }
-  toast('⏳ Creating match on chain...');
-  try {
-    const tx = await contract.createMatch(team1, team2, type, venue, ts);
-    await tx.wait();
-    toast('✓ Match created on Sepolia!');
-    loadMatches();
-    loadAdminMatches();
-  } catch(err) {
-    toast('✗ '+(err.reason||err.message||'Failed').slice(0,60));
-  }
+// ---- ADMIN ----
+async function createMatch(){
+  const c=window._contract
+  if(!c){toast('Connect wallet first');return}
+  if(!window._isOwner){toast('Only owner can create matches');return}
+  const team1=document.getElementById('f-team1').value
+  const team2=document.getElementById('f-team2').value
+  const type=document.getElementById('f-type').value
+  const venue=document.getElementById('f-venue').value||'TBD'
+  const timeVal=document.getElementById('f-time').value
+  if(!timeVal){toast('Set match start time');return}
+  if(team1===team2){toast('Teams must be different');return}
+  const ts=Math.floor(new Date(timeVal).getTime()/1000)
+  if(ts<=Math.floor(Date.now()/1000)){toast('Start time must be in future');return}
+  toast('⏳ Creating match on chain...')
+  try{
+    const tx=await c.createMatch(team1,team2,type,venue,ts)
+    await tx.wait()
+    toast('✓ Match created on Sepolia!')
+    loadMatches()
+    loadAdminMatches()
+  }catch(err){toast('✗ '+(err.reason||err.message||'Failed').slice(0,60))}
 }
 
-async function quickAdd(idx) {
-  if (!contract) { toast('Connect wallet first'); return; }
-  if (!isOwner) { toast('Only owner can create matches'); return; }
-  const qm = quickMatches();
-  const m = qm[idx];
-  const ts = m.ts + Math.floor(Date.now()/1000) - 1700000000 + 86400;
-  toast('⏳ Adding '+m.team1+' vs '+m.team2+'...');
-  try {
-    const tx = await contract.createMatch(m.team1, m.team2, m.type, m.venue, m.ts+86400*30);
-    await tx.wait();
-    toast('✓ '+m.team1+' vs '+m.team2+' added!');
-    loadMatches();
-    loadAdminMatches();
-  } catch(err) {
-    toast('✗ '+(err.reason||err.message||'Failed').slice(0,60));
-  }
+async function quickAdd(idx){
+  const c=window._contract
+  if(!c){toast('Connect wallet first');return}
+  if(!window._isOwner){toast('Only owner can create matches');return}
+  const m=QUICK_MATCHES[idx]
+  toast('⏳ Adding '+m.team1+' vs '+m.team2+'...')
+  try{
+    const tx=await c.createMatch(m.team1,m.team2,m.type,m.venue,m.ts)
+    await tx.wait()
+    toast('✓ '+m.team1+' vs '+m.team2+' added!')
+    loadMatches()
+    loadAdminMatches()
+  }catch(err){toast('✗ '+(err.reason||err.message||'Failed').slice(0,60))}
 }
 
-async function loadAdminMatches() {
-  const el = document.getElementById('adminMatchList');
-  el.innerHTML = '<div class="loading"><div class="spin"></div> Loading...</div>';
-  try {
-    let rc = contract;
-    if (!rc) {
-      const rp = new ethers.JsonRpcProvider('https://rpc.sepolia.org');
-      rc = new ethers.Contract(CA, ABI, rp);
+async function loadAdminMatches(){
+  const el=document.getElementById('adminMatchList')
+  el.innerHTML='<div class="loading"><div class="spin"></div> Loading...</div>'
+  try{
+    const rp=new ethers.JsonRpcProvider('https://rpc.sepolia.org')
+    const rc=new ethers.Contract(CA,ABI_UMD,rp)
+    const matches=await rc.getAllMatches()
+    if(matches.length===0){
+      el.innerHTML='<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.62rem;color:var(--g600);padding:1rem">No matches yet. Create one!</div>'
+      return
     }
-    const matches = await rc.getAllMatches();
-    if (matches.length===0) {
-      el.innerHTML = '<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.62rem;color:var(--g600);padding:1rem">No matches yet</div>';
-      return;
-    }
-    const sMap={0:'Open',1:'Closed',2:'Resolved',3:'Cancelled'};
-    el.innerHTML = '<div class="match-list-admin">'+matches.map(m=>`
-      <div class="arow">
-        <div class="arow-info">
-          <div class="arow-teams">${gf(m.team1)} ${m.team1} vs ${gf(m.team2)} ${m.team2}</div>
-          <div class="arow-meta">#${m.id} · ${m.matchType} · ${sMap[Number(m.status)]} · Pool: ${parseFloat(ethers.formatEther(m.totalPool)).toFixed(4)} ETH</div>
-        </div>
-        <div class="arow-actions">
-          ${Number(m.status)===0?`<button class="abtn btn-o" onclick="adminClose(${m.id})">Close</button>`:''}
-          ${Number(m.status)===1?`<button class="abtn btn-g" onclick="openResult(${m.id},'${m.team1}','${m.team2}')">Set Result</button>`:''}
-          ${Number(m.status)===0||Number(m.status)===1?`<button class="abtn btn-r" onclick="adminCancel(${m.id})">Cancel</button>`:''}
-        </div>
-      </div>`).join('')+'</div>';
-  } catch(err) {
-    el.innerHTML = '<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.62rem;color:var(--red);padding:1rem">Error loading</div>';
+    const sMap={0:'Open',1:'Closed',2:'Resolved',3:'Cancelled'}
+    el.innerHTML=matches.map(m=>`<div class="arow">
+      <div class="arow-info">
+        <div class="arow-teams">${gf(m.team1)} ${m.team1} vs ${gf(m.team2)} ${m.team2}</div>
+        <div class="arow-meta">#${m.id} · ${m.matchType} · ${sMap[Number(m.status)]} · ${parseFloat(ethers.formatEther(m.totalPool)).toFixed(4)} ETH</div>
+      </div>
+      <div class="arow-actions">
+        ${Number(m.status)===0?`<button class="abtn btn-o" onclick="adminClose(${m.id})">Close</button>`:''}
+        ${Number(m.status)===1?`<button class="abtn btn-g" onclick="openResult(${m.id},'${m.team1}','${m.team2}')">Set Result</button>`:''}
+        ${Number(m.status)===0||Number(m.status)===1?`<button class="abtn btn-r" onclick="adminCancel(${m.id})">Cancel</button>`:''}
+      </div>
+    </div>`).join('')
+  }catch(err){
+    el.innerHTML='<div style="color:var(--red);font-family:\'JetBrains Mono\',monospace;font-size:0.62rem;padding:1rem">Error loading matches</div>'
   }
 }
 
-async function adminClose(id) {
-  if(!contract||!isOwner){toast('Owner only');return;}
-  toast('⏳ Closing market...');
-  try { const tx=await contract.closeMatch(id); await tx.wait(); toast('✓ Market closed'); loadAdminMatches(); loadMatches(); }
-  catch(e){toast('✗ '+(e.reason||e.message||'').slice(0,50));}
+async function adminClose(id){
+  if(!window._contract||!window._isOwner){toast('Owner only');return}
+  toast('⏳ Closing market...')
+  try{const tx=await window._contract.closeMatch(id);await tx.wait();toast('✓ Market closed');loadAdminMatches();loadMatches()}
+  catch(e){toast('✗ '+(e.reason||e.message||'').slice(0,50))}
 }
 
-async function adminCancel(id) {
-  if(!contract||!isOwner){toast('Owner only');return;}
-  toast('⏳ Cancelling...');
-  try { const tx=await contract.cancelMatch(id); await tx.wait(); toast('✓ Cancelled — users can refund'); loadAdminMatches(); loadMatches(); }
-  catch(e){toast('✗ '+(e.reason||e.message||'').slice(0,50));}
+async function adminCancel(id){
+  if(!window._contract||!window._isOwner){toast('Owner only');return}
+  toast('⏳ Cancelling...')
+  try{const tx=await window._contract.cancelMatch(id);await tx.wait();toast('✓ Cancelled — users can refund');loadAdminMatches();loadMatches()}
+  catch(e){toast('✗ '+(e.reason||e.message||'').slice(0,50))}
 }
 
-function openResult(id,t1,t2) {
-  curResult={matchId:id,team1:t1,team2:t2}; selRes=null;
-  document.getElementById('resultLabel').textContent=`// ${t1} VS ${t2}`;
-  document.getElementById('ropt1').textContent=`${gf(t1)}\n${t1} Wins`;
-  document.getElementById('ropt2').textContent=`${gf(t2)}\n${t2} Wins`;
-  document.querySelectorAll('.ropt').forEach(r=>r.classList.remove('sel'));
-  document.getElementById('resultModal').classList.add('on');
+function openResult(id,t1,t2){
+  curResult={matchId:id,team1:t1,team2:t2};selRes=null
+  document.getElementById('resultLabel').textContent=`// ${t1} VS ${t2}`
+  document.getElementById('ropt1').innerHTML=`${gf(t1)}<br>${t1} Wins`
+  document.getElementById('ropt2').innerHTML=`${gf(t2)}<br>${t2} Wins`
+  document.querySelectorAll('.ropt').forEach(r=>r.classList.remove('sel'))
+  document.getElementById('resultModal').classList.add('on')
+}
+function selResult(n){selRes=n;document.querySelectorAll('.ropt').forEach(r=>r.classList.remove('sel'));document.getElementById('ropt'+n).classList.add('sel')}
+async function submitResult(){
+  if(!selRes){toast('Select a result');return}
+  if(!window._contract||!window._isOwner){toast('Owner only');return}
+  closeModal('resultModal')
+  toast('⏳ Submitting result...')
+  try{
+    const tx=await window._contract.resolveMatch(curResult.matchId,selRes)
+    await tx.wait()
+    toast('✓ Result set! Winners can now claim.')
+    loadAdminMatches();loadMatches()
+  }catch(e){toast('✗ '+(e.reason||e.message||'').slice(0,60))}
 }
 
-function selResult(n) {
-  selRes=n;
-  document.querySelectorAll('.ropt').forEach(r=>r.classList.remove('sel'));
-  document.getElementById('ropt'+n).classList.add('sel');
+function toast(msg){
+  const t=document.getElementById('toast')
+  t.textContent=msg;t.classList.add('show')
+  clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),4000)
 }
 
-async function submitResult() {
-  if(!selRes){toast('Select a result');return;}
-  if(!contract||!isOwner){toast('Owner only');return;}
-  closeModal('resultModal');
-  toast('⏳ Submitting result...');
-  try {
-    const tx=await contract.resolveMatch(curResult.matchId,selRes);
-    await tx.wait();
-    toast('✓ Result set! Winners can now claim.');
-    loadAdminMatches(); loadMatches();
-  } catch(e){toast('✗ '+(e.reason||e.message||'').slice(0,60));}
-}
-
-// ============================================================
-// TOAST
-// ============================================================
-function toast(msg) {
-  const t=document.getElementById('toast');
-  t.textContent=msg; t.classList.add('show');
-  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),4000);
-}
-
-// ============================================================
-// INIT
-// ============================================================
+// Quick matches buttons
 window.addEventListener('load',()=>{
-  loadMatches();
-  if(window.ethereum) window.ethereum.request({method:'eth_accounts'}).then(a=>{if(a.length>0)connectWallet();});
-});
+  const qg=document.getElementById('quickGrid')
+  if(qg){
+    qg.innerHTML=QUICK_MATCHES.map((m,i)=>`
+      <button class="qmatch-btn" onclick="quickAdd(${i})">
+        <span class="qt">${gf(m.team1)} ${m.team1} vs ${gf(m.team2)} ${m.team2}</span>
+        <span class="qs">${m.type} · ${m.venue.split(',')[0]}</span>
+      </button>`).join('')
+  }
+  loadMatches()
+})
 </script>
 </body>
 </html>
