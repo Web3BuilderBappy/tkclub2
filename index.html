@@ -5,333 +5,291 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CricketChain — On-Chain Prediction Market</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-
-<!-- Reown AppKit (WalletConnect v3) -->
-<script type="module">
-  import { createAppKit } from 'https://esm.sh/@reown/appkit@1.6.8'
-  import { EthersAdapter } from 'https://esm.sh/@reown/appkit-adapter-ethers@1.6.8'
-  import { sepolia } from 'https://esm.sh/@reown/appkit/networks'
-  import { ethers } from 'https://esm.sh/ethers@6.7.0'
-
-  const PROJECT_ID = '1724feb47aaa94102743462f8a84e693'
-  const CA = '0x4b57B653CE1f9422772015717FC0Ebd920EC16E8'
-  const OWNER = '0x0e4d3a110' // will be fetched
-
-  const ABI = [
-    "function matchCount() view returns (uint256)",
-    "function getAllMatches() view returns (tuple(uint256 id,string team1,string team2,string matchType,string venue,uint256 startTime,uint8 status,uint8 result,uint256 totalPool,uint256 team1Pool,uint256 team2Pool,uint256 drawPool)[])",
-    "function predict(uint256,uint8) payable",
-    "function claimReward(uint256)",
-    "function claimRefund(uint256)",
-    "function getUserPrediction(uint256,address) view returns (tuple(address predictor,uint256 matchId,uint8 choice,uint256 amount,bool claimed))",
-    "function createMatch(string,string,string,string,uint256) returns (uint256)",
-    "function closeMatch(uint256)",
-    "function resolveMatch(uint256,uint8)",
-    "function cancelMatch(uint256)",
-    "function owner() view returns (address)"
-  ]
-
-  const ethersAdapter = new EthersAdapter()
-
-  const modal = createAppKit({
-    adapters: [ethersAdapter],
-    networks: [sepolia],
-    projectId: PROJECT_ID,
-    metadata: {
-      name: 'CricketChain',
-      description: 'On-chain cricket prediction market',
-      url: 'https://cricketchain.app',
-      icons: ['https://avatars.githubusercontent.com/u/37784886']
-    },
-    features: { analytics: false },
-    themeMode: 'dark',
-    themeVariables: {
-      '--w3m-color-mix': '#000000',
-      '--w3m-color-mix-strength': 40,
-      '--w3m-accent': '#ffffff',
-      '--w3m-border-radius-master': '2px'
-    }
-  })
-
-  window._appkit = modal
-  window._ethers = ethers
-  window._ABI = ABI
-  window._CA = CA
-
-  // Listen for account changes
-  modal.subscribeAccount(async (account) => {
-    if (account.isConnected && account.address) {
-      window._userAddr = account.address
-      await initContract()
-      updateNavConnected()
-      loadMatches()
-      checkAdminAccess()
-    } else {
-      window._userAddr = null
-      window._contract = null
-      window._isOwner = false
-      updateNavDisconnected()
-      hideAdmin()
-    }
-  })
-
-  async function initContract() {
-    try {
-      const walletProvider = modal.getWalletProvider()
-      if (!walletProvider) return
-      const provider = new ethers.BrowserProvider(walletProvider)
-      const signer = await provider.getSigner()
-      window._contract = new ethers.Contract(CA, ABI, signer)
-      window._provider = provider
-
-      // Check owner
-      const owner = await window._contract.owner()
-      window._isOwner = owner.toLowerCase() === window._userAddr.toLowerCase()
-      window._ownerAddr = owner
-    } catch(e) {
-      console.error('initContract:', e)
-    }
-  }
-
-  function updateNavConnected() {
-    const addr = window._userAddr
-    const short = addr.slice(0,6)+'...'+addr.slice(-4)
-    const btn = document.getElementById('connectBtn')
-    if (btn) {
-      btn.textContent = short
-      btn.onclick = () => window._appkit.open()
-      btn.style.cssText = 'background:#0d0d0d;color:#999;border:1px solid #1f1f1f;font-family:JetBrains Mono,monospace;font-size:0.62rem;padding:0.4rem 0.8rem;border-radius:3px;cursor:pointer;'
-    }
-    const wa = document.getElementById('waddr')
-    if(wa) { wa.style.display='none' }
-  }
-
-  function updateNavDisconnected() {
-    const btn = document.getElementById('connectBtn')
-    if (btn) {
-      btn.textContent = 'Connect'
-      btn.onclick = () => window._appkit.open()
-      btn.style.cssText = 'background:#fff;color:#000;font-family:Syne,sans-serif;font-size:0.75rem;font-weight:700;letter-spacing:0.04em;padding:0.42rem 1rem;border-radius:3px;cursor:pointer;border:none;text-transform:uppercase;'
-    }
-  }
-
-  function checkAdminAccess() {
-    const adminTab = document.getElementById('tab-admin')
-    if (adminTab) {
-      adminTab.style.display = window._isOwner ? 'block' : 'none'
-    }
-  }
-
-  function hideAdmin() {
-    const adminTab = document.getElementById('tab-admin')
-    if (adminTab) adminTab.style.display = 'none'
-    if (document.getElementById('page-admin')?.classList.contains('active')) {
-      switchTab('markets')
-    }
-  }
-
-  window._initContract = initContract
-  window.addEventListener('load', () => {
-    setTimeout(checkAdminAccess, 500)
-    loadMatches()
-  })
-</script>
-
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
-
+<script src="https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.17.0/dist/index.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
-:root {
-  --black:#000; --white:#fff; --g900:#0d0d0d; --g800:#1a1a1a;
-  --g600:#555; --g400:#999; --g200:#e0e0e0; --border:#1f1f1f;
-  --green:#4ade80; --red:#f87171; --gold:#fbbf24;
-}
+:root{--black:#000;--white:#fff;--g900:#0d0d0d;--g800:#1a1a1a;--g600:#555;--g400:#999;--g200:#e0e0e0;--border:#1f1f1f;--green:#4ade80;--red:#f87171;--gold:#fbbf24;}
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:var(--black);color:var(--white);font-family:'Syne',sans-serif;min-height:100vh;overflow-x:hidden;}
-
 nav{position:fixed;top:0;left:0;right:0;z-index:200;height:58px;display:flex;align-items:center;justify-content:space-between;padding:0 1.5rem;background:rgba(0,0,0,0.96);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);}
 .logo{font-size:1.05rem;font-weight:800;letter-spacing:-0.02em;display:flex;align-items:center;gap:0.5rem;}
 .logo-dot{width:7px;height:7px;background:var(--white);border-radius:50%;animation:blink 2s infinite;}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
 .nav-r{display:flex;align-items:center;gap:0.6rem;}
 .pill{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--g400);border:1px solid var(--border);padding:0.28rem 0.7rem;border-radius:100px;display:flex;align-items:center;gap:0.35rem;}
-.live-dot{width:5px;height:5px;background:var(--green);border-radius:50%;animation:blink 2s infinite;}
+.ldot{width:5px;height:5px;background:var(--green);border-radius:50%;animation:blink 2s infinite;}
 .btn{font-family:'Syne',sans-serif;font-size:0.75rem;font-weight:700;letter-spacing:0.04em;padding:0.42rem 1rem;border-radius:3px;cursor:pointer;transition:all 0.15s;border:none;text-transform:uppercase;}
 .btn-w{background:var(--white);color:var(--black);}
 .btn-w:hover{background:var(--g200);}
 .btn-o{background:transparent;color:var(--g400);border:1px solid var(--border);}
 .btn-o:hover{border-color:var(--g400);color:var(--white);}
 .btn-g{background:transparent;color:var(--green);border:1px solid rgba(74,222,128,0.3);}
-.btn-g:hover{background:rgba(74,222,128,0.08);}
 .btn-r{background:transparent;color:var(--red);border:1px solid rgba(248,113,113,0.3);}
-.btn-r:hover{background:rgba(248,113,113,0.08);}
-#waddr{display:none;}
 
+/* MODALS */
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);backdrop-filter:blur(12px);z-index:999;align-items:center;justify-content:center;padding:1rem;}
+.overlay.on{display:flex;}
+@keyframes mIn{from{transform:translateY(10px);opacity:0}to{transform:translateY(0);opacity:1}}
+
+/* WALLET MODAL */
+.wm{background:#111;border:1px solid #2a2a2a;border-radius:16px;padding:1.6rem;width:100%;max-width:360px;animation:mIn 0.2s ease;position:relative;}
+.wm-x{position:absolute;top:1rem;right:1rem;background:none;border:none;color:#555;font-size:1.1rem;cursor:pointer;padding:0.2rem 0.5rem;border-radius:4px;}
+.wm-x:hover{color:#fff;}
+.wm-title{font-size:1.1rem;font-weight:800;text-align:center;margin-bottom:0.2rem;}
+.wm-sub{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:#555;text-align:center;margin-bottom:1.3rem;}
+.wopt{display:flex;align-items:center;gap:1rem;padding:0.9rem 1rem;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:12px;cursor:pointer;transition:all 0.15s;margin-bottom:0.45rem;}
+.wopt:hover{background:#222;border-color:#555;}
+.wico{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;flex-shrink:0;}
+.wn{font-size:0.88rem;font-weight:700;}
+.wd{font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:#555;margin-top:0.1rem;}
+.wm-foot{font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:#555;text-align:center;margin-top:1rem;padding-top:1rem;border-top:1px solid #1f1f1f;}
+.wm-foot a{color:#999;text-decoration:none;}
+
+/* QR MODAL */
+.qm{background:#111;border:1px solid #2a2a2a;border-radius:16px;padding:1.5rem;width:100%;max-width:300px;text-align:center;animation:mIn 0.2s ease;}
+.qm-title{font-size:0.95rem;font-weight:800;margin-bottom:0.2rem;}
+.qm-sub{font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:#555;margin-bottom:1rem;}
+.qr-box{background:#fff;border-radius:12px;padding:0.8rem;display:inline-block;}
+.qm-hint{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:#555;margin-top:0.8rem;line-height:1.5;}
+
+/* BET/RESULT MODAL */
+.modal{background:var(--g900);border:1px solid var(--border);border-radius:4px;padding:1.75rem;width:100%;max-width:380px;animation:mIn 0.2s ease;}
+.rmodal{max-width:320px;}
+.mtitle{font-size:1.1rem;font-weight:800;margin-bottom:0.2rem;}
+.msub{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--g600);margin-bottom:1.2rem;}
+.cbox{border:1px solid var(--border);border-radius:3px;padding:0.85rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;}
+.clabel{font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--g600);text-transform:uppercase;display:block;margin-bottom:0.2rem;}
+.cval{font-size:0.92rem;font-weight:800;}
+.ilabel{font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--g600);text-transform:uppercase;display:block;margin-bottom:0.4rem;}
+.iwrap{display:flex;align-items:center;border:1px solid var(--border);border-radius:3px;margin-bottom:0.6rem;}
+.iwrap:focus-within{border-color:var(--g400);}
+.einput{flex:1;background:transparent;border:none;outline:none;padding:0.7rem 0.85rem;font-family:'JetBrains Mono',monospace;font-size:1.05rem;color:var(--white);}
+.elabel{font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--g600);padding:0 0.85rem;}
+.qrow{display:flex;gap:0.3rem;margin-bottom:1rem;}
+.qbtn{flex:1;padding:0.35rem;background:transparent;border:1px solid var(--border);color:var(--g600);font-family:'JetBrains Mono',monospace;font-size:0.6rem;cursor:pointer;border-radius:2px;transition:all 0.15s;}
+.qbtn:hover{border-color:var(--g400);color:var(--white);}
+.retrow{display:flex;justify-content:space-between;padding:0.65rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:1rem;}
+.rl{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--g600);}
+.rv{font-family:'JetBrains Mono',monospace;font-size:0.92rem;}
+.ma{display:flex;gap:0.4rem;}
+.bf{width:100%;}
+.ropts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.4rem;margin-bottom:1rem;}
+.ropt{padding:0.7rem 0.3rem;background:transparent;border:1px solid var(--border);color:var(--g400);font-family:'Syne',sans-serif;font-size:0.7rem;font-weight:700;cursor:pointer;border-radius:3px;transition:all 0.15s;text-align:center;line-height:1.4;}
+.ropt:hover,.ropt.sel{border-color:var(--white);color:var(--white);background:var(--g800);}
+
+/* TABS & PAGES */
 .tabs{display:flex;border-bottom:1px solid var(--border);background:var(--g900);position:sticky;top:58px;z-index:100;}
 .tab{font-size:0.68rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;padding:0.85rem 1.5rem;cursor:pointer;color:var(--g600);border-bottom:2px solid transparent;transition:all 0.15s;}
 .tab.active{color:var(--white);border-bottom-color:var(--white);}
-#tab-admin{color:var(--gold);display:none;}
-
 .page{display:none;}
 .page.active{display:block;}
 
+/* HERO */
 .hero{padding:4rem 1.5rem 3rem;max-width:1100px;margin:0 auto;border-bottom:1px solid var(--border);}
 .hero-tag{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--g600);letter-spacing:0.15em;text-transform:uppercase;margin-bottom:1.5rem;}
 .hero h1{font-size:clamp(2.5rem,6vw,5rem);font-weight:800;line-height:0.95;letter-spacing:-0.04em;margin-bottom:2rem;}
 .hero h1 span{color:var(--g600);}
-.hero-bottom{display:flex;align-items:flex-end;justify-content:space-between;gap:1.5rem;flex-wrap:wrap;}
-.hero-desc{font-size:0.9rem;color:var(--g400);max-width:360px;line-height:1.65;}
-.stats-row{display:flex;gap:2rem;}
+.hbot{display:flex;align-items:flex-end;justify-content:space-between;gap:1.5rem;flex-wrap:wrap;}
+.hdesc{font-size:0.9rem;color:var(--g400);max-width:360px;line-height:1.65;}
+.srow{display:flex;gap:2rem;}
 .stat{text-align:right;}
-.stat-n{font-family:'JetBrains Mono',monospace;font-size:1.5rem;font-weight:500;display:block;}
-.stat-l{font-size:0.6rem;color:var(--g600);letter-spacing:0.12em;text-transform:uppercase;}
-
-.cbar{background:var(--g900);border-bottom:1px solid var(--border);padding:0.6rem 1.5rem;display:flex;gap:1.5rem;flex-wrap:wrap;align-items:center;}
+.sn{font-family:'JetBrains Mono',monospace;font-size:1.5rem;font-weight:500;display:block;}
+.sl{font-size:0.6rem;color:var(--g600);letter-spacing:0.12em;text-transform:uppercase;}
+.cbar{background:var(--g900);border-bottom:1px solid var(--border);padding:0.6rem 1.5rem;display:flex;gap:1.5rem;flex-wrap:wrap;}
 .ci{display:flex;align-items:center;gap:0.4rem;}
 .cl{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--g600);letter-spacing:0.1em;text-transform:uppercase;}
 .cv{font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--g400);}
 .cv a{color:var(--g400);text-decoration:none;border-bottom:1px solid var(--border);}
-.cv a:hover{color:var(--white);}
 
+/* CARDS */
 .sec{max-width:1100px;margin:0 auto;padding:2rem 1.5rem;}
-.sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;padding-bottom:0.8rem;border-bottom:1px solid var(--border);}
-.sec-title{font-size:0.62rem;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:var(--g400);}
-.sec-count{font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:var(--g600);}
-
+.sh{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;padding-bottom:0.8rem;border-bottom:1px solid var(--border);}
+.st{font-size:0.62rem;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:var(--g400);}
+.sc{font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:var(--g600);}
 .mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:1px;background:var(--border);border:1px solid var(--border);}
-.mcard{background:var(--black);padding:1.3rem;transition:background 0.15s;}
-.mcard:hover{background:var(--g900);}
-.mcard-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.1rem;}
+.mc{background:var(--black);padding:1.3rem;transition:background 0.15s;}
+.mc:hover{background:var(--g900);}
+.mh{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.1rem;}
 .mtype{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--g600);letter-spacing:0.1em;text-transform:uppercase;}
-.sbadge{font-family:'JetBrains Mono',monospace;font-size:0.55rem;letter-spacing:0.08em;padding:0.15rem 0.45rem;border:1px solid;border-radius:2px;}
+.sb{font-family:'JetBrains Mono',monospace;font-size:0.55rem;padding:0.15rem 0.45rem;border:1px solid;border-radius:2px;}
 .s0{color:var(--green);border-color:rgba(74,222,128,0.3);}
 .s1{color:var(--g600);border-color:var(--border);}
 .s2{color:var(--gold);border-color:rgba(251,191,36,0.3);}
 .s3{color:var(--g600);border-color:var(--border);}
-
 .teams{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.1rem;}
 .team{text-align:center;}
-.tflag{font-size:1.9rem;display:block;margin-bottom:0.25rem;}
-.tname{font-size:0.9rem;font-weight:800;letter-spacing:-0.02em;}
-.vs{font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:var(--g600);letter-spacing:0.2em;}
-
-.pbar-wrap{margin-bottom:1rem;}
-.prow{display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem;}
-.pname{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--g600);width:26px;text-align:right;flex-shrink:0;}
+.tf{font-size:1.9rem;display:block;margin-bottom:0.25rem;}
+.tn{font-size:0.9rem;font-weight:800;}
+.vs{font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:var(--g600);}
+.pb{margin-bottom:1rem;}
+.pr{display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem;}
+.pn{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--g600);width:26px;text-align:right;flex-shrink:0;}
 .pbg{flex:1;height:2px;background:var(--border);}
-.pfill{height:100%;background:var(--white);transition:width 0.8s ease;}
-.ppct{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--g400);width:26px;flex-shrink:0;}
-
-.cmeta{display:flex;justify-content:space-between;margin-bottom:0.9rem;flex-wrap:wrap;gap:0.25rem;}
+.pf{height:100%;background:var(--white);transition:width 0.8s;}
+.pp{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--g400);width:26px;flex-shrink:0;}
+.cm{display:flex;justify-content:space-between;margin-bottom:0.9rem;flex-wrap:wrap;gap:0.25rem;}
 .cmi{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--g600);}
 .cmi span{color:var(--g400);}
-
 .brow{display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;}
-.bbtn{font-family:'Syne',sans-serif;font-size:0.62rem;font-weight:700;letter-spacing:0.03em;padding:0.52rem 0.3rem;background:transparent;border:1px solid var(--border);color:var(--g400);cursor:pointer;border-radius:2px;transition:all 0.15s;text-transform:uppercase;}
-.bbtn:hover{border-color:var(--white);color:var(--white);background:var(--g900);}
-.closed-label{font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:var(--g600);text-align:center;padding:0.4rem 0;}
-
-/* BET MODAL */
-.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);backdrop-filter:blur(10px);z-index:999;align-items:center;justify-content:center;padding:1rem;}
-.overlay.on{display:flex;}
-.modal{background:var(--g900);border:1px solid var(--border);border-radius:4px;padding:1.75rem;width:100%;max-width:380px;animation:mIn 0.2s ease;}
-@keyframes mIn{from{transform:translateY(8px);opacity:0}to{transform:translateY(0);opacity:1}}
-.mtitle{font-size:1.1rem;font-weight:800;letter-spacing:-0.02em;margin-bottom:0.2rem;}
-.msub{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--g600);margin-bottom:1.3rem;}
-.cbox{border:1px solid var(--border);border-radius:3px;padding:0.85rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;}
-.clabel{font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--g600);letter-spacing:0.1em;text-transform:uppercase;display:block;margin-bottom:0.2rem;}
-.cval{font-size:0.92rem;font-weight:800;}
-.oval{font-family:'JetBrains Mono',monospace;font-size:0.9rem;color:var(--g400);}
-.ilabel{font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--g600);letter-spacing:0.1em;text-transform:uppercase;display:block;margin-bottom:0.4rem;}
-.iwrap{display:flex;align-items:center;border:1px solid var(--border);border-radius:3px;margin-bottom:0.6rem;transition:border-color 0.15s;}
-.iwrap:focus-within{border-color:var(--g400);}
-.einput{flex:1;background:transparent;border:none;outline:none;padding:0.7rem 0.85rem;font-family:'JetBrains Mono',monospace;font-size:1.05rem;color:var(--white);}
-.ethlabel{font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--g600);padding:0 0.85rem;}
-.qrow{display:flex;gap:0.3rem;margin-bottom:1rem;}
-.qbtn{flex:1;padding:0.35rem;background:transparent;border:1px solid var(--border);color:var(--g600);font-family:'JetBrains Mono',monospace;font-size:0.6rem;cursor:pointer;border-radius:2px;transition:all 0.15s;}
-.qbtn:hover{border-color:var(--g400);color:var(--white);}
-.retrow{display:flex;justify-content:space-between;align-items:center;padding:0.65rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:1rem;}
-.retlabel{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--g600);}
-.retval{font-family:'JetBrains Mono',monospace;font-size:0.92rem;color:var(--white);}
-.mactions{display:flex;gap:0.4rem;}
-.btn-full{width:100%;}
+.bb{font-family:'Syne',sans-serif;font-size:0.62rem;font-weight:700;padding:0.52rem 0.3rem;background:transparent;border:1px solid var(--border);color:var(--g400);cursor:pointer;border-radius:2px;transition:all 0.15s;text-transform:uppercase;}
+.bb:hover{border-color:var(--white);color:var(--white);background:var(--g900);}
+.cl2{font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:var(--g600);text-align:center;padding:0.4rem 0;}
 
 /* MY BETS */
-.mybet-card{background:var(--g900);border:1px solid var(--border);padding:1.1rem;margin-bottom:1px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;}
-.mybet-info .match-label{font-size:0.85rem;font-weight:700;}
-.mybet-info .bet-detail{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--g600);margin-top:0.2rem;}
+.mbc{background:var(--g900);border:1px solid var(--border);padding:1.1rem;margin-bottom:1px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;}
+.ml{font-size:0.85rem;font-weight:700;}
+.bd{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--g600);margin-top:0.2rem;}
 
 /* ADMIN */
-.admin-hero{background:linear-gradient(135deg,rgba(251,191,36,0.05),transparent);border-bottom:1px solid rgba(251,191,36,0.15);padding:2rem 1.5rem;}
-.admin-title{font-size:1.5rem;font-weight:800;letter-spacing:-0.03em;color:var(--gold);margin-bottom:0.3rem;}
-.admin-sub{font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--g600);}
-.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);}
-@media(max-width:700px){.admin-grid{grid-template-columns:1fr;}}
-.acard{background:var(--black);padding:1.3rem;}
-.acard-title{font-size:0.65rem;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;color:var(--g400);margin-bottom:1.1rem;display:flex;align-items:center;gap:0.5rem;}
-.acard-title::before{content:'';width:3px;height:0.9rem;background:var(--gold);}
-.form-group{margin-bottom:0.75rem;}
-.flabel{font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--g600);letter-spacing:0.1em;text-transform:uppercase;display:block;margin-bottom:0.35rem;}
-.finput{width:100%;background:var(--g900);border:1px solid var(--border);color:var(--white);font-family:'JetBrains Mono',monospace;font-size:0.8rem;padding:0.6rem 0.8rem;border-radius:3px;outline:none;transition:border-color 0.15s;}
-.finput:focus{border-color:var(--g400);}
-.fselect{width:100%;background:var(--g900);border:1px solid var(--border);color:var(--white);font-family:'JetBrains Mono',monospace;font-size:0.8rem;padding:0.6rem 0.8rem;border-radius:3px;outline:none;}
-.arow{background:var(--g900);padding:0.9rem;display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;border-bottom:1px solid var(--border);}
-.arow:last-child{border-bottom:none;}
-.arow-info{flex:1;}
-.arow-teams{font-size:0.85rem;font-weight:700;}
-.arow-meta{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--g600);margin-top:0.2rem;}
-.arow-actions{display:flex;gap:0.35rem;flex-wrap:wrap;}
-.abtn{font-family:'Syne',sans-serif;font-size:0.6rem;font-weight:700;padding:0.35rem 0.7rem;border-radius:2px;cursor:pointer;transition:all 0.15s;letter-spacing:0.05em;text-transform:uppercase;}
-.quick-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0.5rem;}
-.qmatch-btn{background:var(--g900);border:1px solid var(--border);color:var(--g400);padding:0.7rem;border-radius:3px;cursor:pointer;text-align:left;transition:all 0.15s;font-family:'Syne',sans-serif;}
-.qmatch-btn:hover{border-color:var(--white);color:var(--white);}
-.qmatch-btn .qt{font-size:0.8rem;font-weight:700;display:block;margin-bottom:0.2rem;}
-.qmatch-btn .qs{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--g600);}
+.ah{background:linear-gradient(135deg,rgba(251,191,36,0.05),transparent);border-bottom:1px solid rgba(251,191,36,0.15);padding:2rem 1.5rem;}
+.at{font-size:1.5rem;font-weight:800;color:var(--gold);margin-bottom:0.3rem;}
+.as{font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:var(--g600);}
+.ag{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);}
+@media(max-width:700px){.ag{grid-template-columns:1fr;}}
+.ac{background:var(--black);padding:1.3rem;}
+.act{font-size:0.65rem;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;color:var(--g400);margin-bottom:1.1rem;display:flex;align-items:center;gap:0.5rem;}
+.act::before{content:'';width:3px;height:0.9rem;background:var(--gold);}
+.fg{margin-bottom:0.75rem;}
+.fl{font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--g600);text-transform:uppercase;display:block;margin-bottom:0.35rem;}
+.fi{width:100%;background:var(--g900);border:1px solid var(--border);color:var(--white);font-family:'JetBrains Mono',monospace;font-size:0.8rem;padding:0.6rem 0.8rem;border-radius:3px;outline:none;}
+.fi:focus{border-color:var(--g400);}
+.fs{width:100%;background:var(--g900);border:1px solid var(--border);color:var(--white);font-family:'JetBrains Mono',monospace;font-size:0.8rem;padding:0.6rem 0.8rem;border-radius:3px;outline:none;}
+.ar{background:var(--g900);padding:0.9rem;display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;border-bottom:1px solid var(--border);}
+.ar:last-child{border-bottom:none;}
+.ai{flex:1;}
+.at2{font-size:0.85rem;font-weight:700;}
+.am{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--g600);margin-top:0.2rem;}
+.aa{display:flex;gap:0.35rem;flex-wrap:wrap;}
+.ab{font-family:'Syne',sans-serif;font-size:0.6rem;font-weight:700;padding:0.35rem 0.7rem;border-radius:2px;cursor:pointer;letter-spacing:0.05em;text-transform:uppercase;}
+.qg{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0.5rem;}
+.qmb{background:var(--g900);border:1px solid var(--border);color:var(--g400);padding:0.7rem;border-radius:3px;cursor:pointer;text-align:left;transition:all 0.15s;width:100%;}
+.qmb:hover{border-color:var(--white);color:var(--white);}
+.qt{font-family:'Syne',sans-serif;font-size:0.78rem;font-weight:700;display:block;margin-bottom:0.2rem;}
+.qs{font-family:'JetBrains Mono',monospace;font-size:0.55rem;color:var(--g600);}
 
-/* RESULT MODAL */
-.rmodal{max-width:340px;}
-.result-opts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.4rem;margin-bottom:1rem;}
-.ropt{padding:0.7rem 0.3rem;background:transparent;border:1px solid var(--border);color:var(--g400);font-family:'Syne',sans-serif;font-size:0.7rem;font-weight:700;cursor:pointer;border-radius:3px;transition:all 0.15s;text-align:center;line-height:1.4;}
-.ropt:hover,.ropt.sel{border-color:var(--white);color:var(--white);background:var(--g800);}
-
+/* UTILS */
 .loading{display:flex;align-items:center;gap:0.5rem;font-family:'JetBrains Mono',monospace;font-size:0.62rem;color:var(--g600);padding:2.5rem 0;}
 .spin{width:11px;height:11px;border:1px solid var(--border);border-top-color:var(--g400);border-radius:50%;animation:sp 0.8s linear infinite;}
 @keyframes sp{to{transform:rotate(360deg)}}
 .empty{padding:3rem 1.5rem;text-align:center;border:1px solid var(--border);}
-.empty-t{font-size:0.88rem;font-weight:800;color:var(--g600);margin-bottom:0.35rem;}
-.empty-s{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:var(--g800);}
-
-.toast{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%) translateY(100px);background:var(--white);color:var(--black);font-family:'JetBrains Mono',monospace;font-size:0.7rem;padding:0.65rem 1.3rem;border-radius:3px;z-index:9999;transition:transform 0.3s ease;white-space:nowrap;letter-spacing:0.03em;max-width:90vw;overflow:hidden;text-overflow:ellipsis;}
+.et{font-size:0.88rem;font-weight:800;color:var(--g600);margin-bottom:0.35rem;}
+.es{font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:#1a1a1a;}
+.toast{position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%) translateY(100px);background:var(--white);color:var(--black);font-family:'JetBrains Mono',monospace;font-size:0.7rem;padding:0.65rem 1.3rem;border-radius:3px;z-index:9999;transition:transform 0.3s;max-width:90vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .toast.show{transform:translateX(-50%) translateY(0);}
-
-footer{border-top:1px solid var(--border);padding:1.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;}
-.flogo{font-size:0.88rem;font-weight:800;letter-spacing:-0.02em;}
-.fmeta{font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--g600);}
-.fmeta a{color:var(--g400);text-decoration:none;}
-
-@media(max-width:640px){
-  .hero h1{font-size:2.4rem;}
-  .stats-row{gap:1.5rem;}
-  .mgrid{grid-template-columns:1fr;}
-  nav{padding:0 1rem;}
-  .pill{display:none;}
-}
+footer{border-top:1px solid var(--border);padding:1.5rem;display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;}
+.fl2{font-size:0.88rem;font-weight:800;}
+.fm{font-family:'JetBrains Mono',monospace;font-size:0.56rem;color:var(--g600);}
+.fm a{color:var(--g400);text-decoration:none;}
+@media(max-width:640px){.hero h1{font-size:2.4rem;}.mgrid{grid-template-columns:1fr;}nav{padding:0 1rem;}.pill{display:none;}}
 </style>
 </head>
 <body>
 
 <nav>
-  <div class="logo"><div class="logo-dot"></div> CricketChain</div>
+  <div class="logo"><div class="logo-dot"></div>CricketChain</div>
   <div class="nav-r">
-    <div class="pill"><div class="live-dot"></div> Sepolia</div>
-    <div id="waddr"></div>
-    <button class="btn btn-w" id="connectBtn" onclick="window._appkit&&window._appkit.open()">Connect</button>
+    <div class="pill"><div class="ldot"></div>Sepolia</div>
+    <button class="btn btn-w" id="connectBtn" onclick="openWalletModal()">Connect</button>
   </div>
 </nav>
 
 <div class="tabs">
   <div class="tab active" onclick="switchTab('markets')" id="tab-markets">Markets</div>
   <div class="tab" onclick="switchTab('mybets')" id="tab-mybets">My Bets</div>
-  <div class="tab" onclick="switchTab('admin')" id="tab-admin" style="color:var(--gold);display:none;">⚡ Admin</div>
+  <div class="tab" id="tab-admin" onclick="switchTab('admin')" style="color:var(--gold);display:none;">⚡ Admin</div>
+</div>
+
+<!-- WALLET MODAL -->
+<div class="overlay" id="walletModal">
+  <div class="wm">
+    <button class="wm-x" onclick="closeM('walletModal')">✕</button>
+    <div class="wm-title">Connect a Wallet</div>
+    <div class="wm-sub">// Choose your provider</div>
+    <div class="wopt" onclick="doMetaMask()">
+      <div class="wico" style="background:#fff;padding:2px;">
+        <!-- MetaMask official SVG logo -->
+        <svg viewBox="0 0 318.6 318.6" width="34" height="34" xmlns="http://www.w3.org/2000/svg">
+          <polygon fill="#e2761b" stroke="#e2761b" points="274.1,35.5 174.6,109.4 193,65.8"/>
+          <polygon fill="#e4761b" stroke="#e4761b" points="44.4,35.5 143.1,110.1 125.6,65.8"/>
+          <polygon fill="#e4761b" stroke="#e4761b" points="238.3,206.8 211.8,247.4 268.5,263 284.8,207.7"/>
+          <polygon fill="#e4761b" stroke="#e4761b" points="33.9,207.7 50.1,263 106.8,247.4 80.3,206.8"/>
+          <polygon fill="#e4761b" stroke="#e4761b" points="103.6,138.2 87.8,162.1 144.1,164.6 142.1,104.1"/>
+          <polygon fill="#e4761b" stroke="#e4761b" points="214.9,138.2 176.3,103.4 174.6,164.6 230.8,162.1"/>
+          <polygon fill="#e4761b" stroke="#e4761b" points="106.8,247.4 140.6,230.9 111.4,208.1"/>
+          <polygon fill="#e4761b" stroke="#e4761b" points="177.9,230.9 211.8,247.4 207.1,208.1"/>
+          <polygon fill="#d7c1b3" stroke="#d7c1b3" points="211.8,247.4 177.9,230.9 180.6,253 180.3,262.3"/>
+          <polygon fill="#d7c1b3" stroke="#d7c1b3" points="106.8,247.4 138.3,262.3 138.1,253 140.6,230.9"/>
+          <polygon fill="#233447" stroke="#233447" points="138.8,193.5 110.6,185.2 130.5,176.1"/>
+          <polygon fill="#233447" stroke="#233447" points="179.7,193.5 188,176.1 208,185.2"/>
+          <polygon fill="#cd6116" stroke="#cd6116" points="106.8,247.4 111.6,206.8 80.3,207.7"/>
+          <polygon fill="#cd6116" stroke="#cd6116" points="207,206.8 211.8,247.4 238.3,207.7"/>
+          <polygon fill="#cd6116" stroke="#cd6116" points="230.8,162.1 174.6,164.6 179.8,193.5 188.1,176.1 208.1,185.2"/>
+          <polygon fill="#cd6116" stroke="#cd6116" points="110.6,185.2 130.6,176.1 138.8,193.5 144.1,164.6 87.8,162.1"/>
+          <polygon fill="#e4751f" stroke="#e4751f" points="87.8,162.1 111.4,208.1 110.6,185.2"/>
+          <polygon fill="#e4751f" stroke="#e4751f" points="208.1,185.2 207.1,208.1 230.8,162.1"/>
+          <polygon fill="#e4751f" stroke="#e4751f" points="144.1,164.6 138.8,193.5 145.4,227.6 146.9,182.7"/>
+          <polygon fill="#e4751f" stroke="#e4751f" points="174.6,164.6 171.9,182.6 173.1,227.6 179.8,193.5"/>
+          <polygon fill="#f6851b" stroke="#f6851b" points="179.8,193.5 173.1,227.6 177.9,230.9 207.1,208.1 208.1,185.2"/>
+          <polygon fill="#f6851b" stroke="#f6851b" points="110.6,185.2 111.4,208.1 140.6,230.9 145.4,227.6 138.8,193.5"/>
+          <polygon fill="#c0ad9e" stroke="#c0ad9e" points="180.3,262.3 180.6,253 178.1,250.8 140.4,250.8 138.1,253 138.3,262.3 106.8,247.4 117.8,256.4 140.1,271.9 178.4,271.9 200.8,256.4 211.8,247.4"/>
+          <polygon fill="#161616" stroke="#161616" points="177.9,230.9 173.1,227.6 145.4,227.6 140.6,230.9 138.1,253 140.4,250.8 178.1,250.8 180.6,253"/>
+          <polygon fill="#763d16" stroke="#763d16" points="278.3,114.2 286.8,73.4 274.1,35.5 177.9,106.9 214.9,138.2 267.2,153.5 278.8,140 273.6,136.4 281.8,129 275.3,124.1 283.4,117.8"/>
+          <polygon fill="#763d16" stroke="#763d16" points="31.8,73.4 40.3,114.2 34.9,117.8 43,124.1 36.6,129 44.8,136.4 39.6,140 51.1,153.5 103.4,138.2 140.6,106.9 44.4,35.5"/>
+          <polygon fill="#f6851b" stroke="#f6851b" points="267.2,153.5 214.9,138.2 230.8,162.1 207.1,208.1 238.3,207.7 284.8,207.7"/>
+          <polygon fill="#f6851b" stroke="#f6851b" points="103.6,138.2 51.1,153.5 33.9,207.7 80.3,207.7 111.4,208.1 87.8,162.1"/>
+          <polygon fill="#f6851b" stroke="#f6851b" points="174.6,164.6 177.9,106.9 193.1,65.8 125.6,65.8 140.6,106.9 144.1,164.6 145.3,182.8 145.4,227.6 173.1,227.6 173.3,182.8"/>
+        </svg>
+      </div>
+      <div><div class="wn">MetaMask</div><div class="wd">Browser extension</div></div>
+      <span style="color:#555;margin-left:auto">›</span>
+    </div>
+    <div class="wopt" onclick="doWalletConnect()">
+      <div class="wico" style="background:#3b99fc;">
+        <!-- WalletConnect official SVG logo -->
+        <svg viewBox="0 0 300 185" width="34" height="22" xmlns="http://www.w3.org/2000/svg">
+          <path fill="#fff" d="M61.4 36.7c48.9-47.9 128.2-47.9 177.1 0l5.9 5.8c2.4 2.4 2.4 6.2 0 8.6L227 68.4c-1.2 1.2-3.2 1.2-4.4 0l-8.1-7.9c-34.1-33.4-89.4-33.4-123.5 0l-8.7 8.5c-1.2 1.2-3.2 1.2-4.4 0L60.5 51.7c-2.4-2.4-2.4-6.2 0-8.6l.9-.9 0-.9zm218.7 40.8 17.3 16.9c2.4 2.4 2.4 6.2 0 8.6L210.8 183.3c-2.4 2.4-6.3 2.4-8.7 0l-56.2-55.1c-.6-.6-1.6-.6-2.2 0l-56.2 55.1c-2.4 2.4-6.3 2.4-8.7 0L.4 103c-2.4-2.4-2.4-6.2 0-8.6l17.3-16.9c2.4-2.4 6.3-2.4 8.7 0l56.2 55.1c.6.6 1.6.6 2.2 0l56.2-55.1c2.4-2.4 6.3-2.4 8.7 0l56.2 55.1c.6.6 1.6.6 2.2 0l56.2-55.1c2.4-2.5 6.3-2.5 8.7-.1z"/>
+        </svg>
+      </div>
+      <div><div class="wn">WalletConnect</div><div class="wd">Rainbow, Trust, Coinbase + more</div></div>
+      <span style="color:#555;margin-left:auto">›</span>
+    </div>
+    <div class="wopt" onclick="doCoinbase()">
+      <div class="wico" style="background:#0052ff;">
+        <!-- Coinbase Wallet official SVG logo -->
+        <svg viewBox="0 0 1024 1024" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="512" cy="512" r="512" fill="#0052ff"/>
+          <path fill="#fff" d="M516 692c-100.3 0-181.5-81.3-181.5-181.5S415.7 329 516 329c90.2 0 165.5 65.7 179.2 151.9h181.7C862.5 290.6 706.2 148 516 148 315.5 148 152.9 310.6 152.9 511.1S315.5 874.2 516 874.2c190.2 0 346.5-142.6 360.9-329h-181.7C681.5 626.3 606.2 692 516 692z"/>
+        </svg>
+      </div>
+      <div><div class="wn">Coinbase Wallet</div><div class="wd">Coinbase browser extension</div></div>
+      <span style="color:#555;margin-left:auto">›</span>
+    </div>
+    <div class="wopt" onclick="doTrust()">
+      <div class="wico" style="background:#3375BB;">
+        <!-- Trust Wallet logo -->
+        <svg viewBox="0 0 512 512" width="28" height="28" xmlns="http://www.w3.org/2000/svg">
+          <path fill="#fff" d="M256 32L64 112v128c0 117.4 82.7 227.3 192 256 109.3-28.7 192-138.6 192-256V112L256 32zm0 96c35.3 0 64 28.7 64 64s-28.7 64-64 64-64-28.7-64-64 28.7-64 64-64zm0 240c-53.3 0-101.3-26.7-130.7-64h261.4C357.3 341.3 309.3 368 256 368z"/>
+        </svg>
+      </div>
+      <div><div class="wn">Trust Wallet</div><div class="wd">Mobile wallet via WalletConnect</div></div>
+      <span style="color:#555;margin-left:auto">›</span>
+    </div>
+    <div class="wm-foot">New to crypto? <a href="https://metamask.io" target="_blank">Get MetaMask ↗</a></div>
+  </div>
+</div>
+
+<!-- QR MODAL -->
+<div class="overlay" id="qrModal">
+  <div class="qm">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
+      <div class="qm-title">Scan with wallet</div>
+      <button onclick="closeM('qrModal');cancelWC()" style="background:none;border:none;color:#555;cursor:pointer;font-size:1.1rem;">✕</button>
+    </div>
+    <div class="qm-sub">Use Rainbow, Trust Wallet, MetaMask mobile, or any WC2 wallet</div>
+    <div class="qr-box"><div id="qrdiv"></div></div>
+    <div class="qm-hint">Open your wallet app → Scan QR code</div>
+  </div>
 </div>
 
 <!-- BET MODAL -->
@@ -341,26 +299,23 @@ footer{border-top:1px solid var(--border);padding:1.5rem;display:flex;justify-co
     <div class="msub" id="betLabel">// MATCH</div>
     <div class="cbox">
       <div><span class="clabel">Your Pick</span><div class="cval" id="betPick">—</div></div>
-      <div class="oval" id="betPool">—</div>
+      <div style="font-family:'JetBrains Mono',monospace;color:var(--g400);font-size:0.9rem;" id="betPool">—</div>
     </div>
     <label class="ilabel">Stake Amount</label>
     <div class="iwrap">
-      <input class="einput" type="number" id="betAmt" value="0.001" min="0.001" step="0.001" oninput="updateRet()">
-      <span class="ethlabel">ETH</span>
+      <input class="einput" type="number" id="betAmt" value="0.001" min="0.001" step="0.001" oninput="updRet()">
+      <span class="elabel">ETH</span>
     </div>
     <div class="qrow">
-      <button class="qbtn" onclick="setAmt(0.001)">0.001</button>
-      <button class="qbtn" onclick="setAmt(0.005)">0.005</button>
-      <button class="qbtn" onclick="setAmt(0.01)">0.01</button>
-      <button class="qbtn" onclick="setAmt(0.05)">0.05</button>
+      <button class="qbtn" onclick="sAmt(0.001)">0.001</button>
+      <button class="qbtn" onclick="sAmt(0.005)">0.005</button>
+      <button class="qbtn" onclick="sAmt(0.01)">0.01</button>
+      <button class="qbtn" onclick="sAmt(0.05)">0.05</button>
     </div>
-    <div class="retrow">
-      <span class="retlabel">Potential Return (est.)</span>
-      <span class="retval" id="retVal">— ETH</span>
-    </div>
-    <div class="mactions">
-      <button class="btn btn-w btn-full" onclick="confirmBet()">Confirm on Chain ↗</button>
-      <button class="btn btn-o" onclick="closeModal('betModal')">✕</button>
+    <div class="retrow"><span class="rl">Potential Return (est.)</span><span class="rv" id="retVal">— ETH</span></div>
+    <div class="ma">
+      <button class="btn btn-w bf" onclick="confirmBet()">Confirm on Chain ↗</button>
+      <button class="btn btn-o" onclick="closeM('betModal')">✕</button>
     </div>
   </div>
 </div>
@@ -369,435 +324,398 @@ footer{border-top:1px solid var(--border);padding:1.5rem;display:flex;justify-co
 <div class="overlay" id="resultModal">
   <div class="modal rmodal">
     <div class="mtitle">Set Result</div>
-    <div class="msub" id="resultLabel">// MATCH</div>
-    <div class="result-opts">
-      <button class="ropt" onclick="selResult(1)" id="ropt1">Team 1<br>Wins</button>
-      <button class="ropt" onclick="selResult(2)" id="ropt2">Team 2<br>Wins</button>
-      <button class="ropt" onclick="selResult(3)" id="ropt3">🤝<br>Draw</button>
+    <div class="msub" id="resLabel">// MATCH</div>
+    <div class="ropts">
+      <button class="ropt" onclick="pickRes(1)" id="ropt1">—<br>Wins</button>
+      <button class="ropt" onclick="pickRes(2)" id="ropt2">—<br>Wins</button>
+      <button class="ropt" onclick="pickRes(3)" id="ropt3">🤝<br>Draw</button>
     </div>
-    <div class="mactions">
-      <button class="btn btn-w btn-full" onclick="submitResult()">Submit Result ↗</button>
-      <button class="btn btn-o" onclick="closeModal('resultModal')">✕</button>
+    <div class="ma">
+      <button class="btn btn-w bf" onclick="submitRes()">Submit Result ↗</button>
+      <button class="btn btn-o" onclick="closeM('resultModal')">✕</button>
     </div>
   </div>
 </div>
 
 <div class="toast" id="toast"></div>
 
-<!-- MARKETS -->
+<!-- MARKETS PAGE -->
 <div class="page active" id="page-markets">
   <div class="hero">
     <div class="hero-tag">// On-chain · Ethereum Sepolia · Built for Rialo Protocol</div>
     <h1>Cricket.<br><span>On-chain.</span><br>Real stakes.</h1>
-    <div class="hero-bottom">
-      <p class="hero-desc">Predict international cricket match outcomes. Stake ETH. Smart contract settles everything — no middlemen.</p>
-      <div class="stats-row">
-        <div class="stat"><span class="stat-n" id="s-pool">—</span><span class="stat-l">Total Pool</span></div>
-        <div class="stat"><span class="stat-n" id="s-matches">—</span><span class="stat-l">Markets</span></div>
+    <div class="hbot">
+      <p class="hdesc">Predict international cricket match outcomes. Stake ETH. Smart contract settles everything.</p>
+      <div class="srow">
+        <div class="stat"><span class="sn" id="s-pool">—</span><span class="sl">Total Pool</span></div>
+        <div class="stat"><span class="sn" id="s-matches">—</span><span class="sl">Markets</span></div>
       </div>
     </div>
   </div>
   <div class="cbar">
     <div class="ci"><span class="cl">Contract</span><span class="cv"><a href="https://sepolia.etherscan.io/address/0x4b57B653CE1f9422772015717FC0Ebd920EC16E8" target="_blank">0x4b57...EC16E8 ↗</a></span></div>
-    <div class="ci"><span class="cl">Network</span><span class="cv">Sepolia (11155111)</span></div>
+    <div class="ci"><span class="cl">Network</span><span class="cv">Sepolia</span></div>
     <div class="ci"><span class="cl">Min Stake</span><span class="cv">0.001 ETH</span></div>
     <div class="ci"><span class="cl">Fee</span><span class="cv">5%</span></div>
   </div>
   <div class="sec">
-    <div class="sec-head">
-      <div class="sec-title">Live & Upcoming Markets</div>
-      <div class="sec-count" id="mc">Loading...</div>
-    </div>
-    <div id="matchContainer"><div class="loading"><div class="spin"></div> Reading from blockchain...</div></div>
+    <div class="sh"><div class="st">Live & Upcoming Markets</div><div class="sc" id="mc">Loading...</div></div>
+    <div id="matchContainer"><div class="loading"><div class="spin"></div>Reading from blockchain...</div></div>
   </div>
 </div>
 
-<!-- MY BETS -->
+<!-- MY BETS PAGE -->
 <div class="page" id="page-mybets">
   <div class="sec">
-    <div class="sec-head">
-      <div class="sec-title">My Predictions</div>
-      <div class="sec-count" id="myBetsCount">—</div>
-    </div>
-    <div id="myBetsContainer">
-      <div class="empty"><div class="empty-t">Connect wallet to view</div><div class="empty-s">// Your predictions will appear here</div></div>
-    </div>
+    <div class="sh"><div class="st">My Predictions</div><div class="sc" id="myBetsCount">—</div></div>
+    <div id="myBetsContainer"><div class="empty"><div class="et">Connect wallet to view</div><div class="es">// Your predictions appear here</div></div></div>
   </div>
 </div>
 
-<!-- ADMIN -->
+<!-- ADMIN PAGE — hidden until owner connects -->
 <div class="page" id="page-admin">
-  <div class="admin-hero">
-    <div class="admin-title">⚡ Admin Panel</div>
-    <div class="admin-sub">// Only accessible by contract owner</div>
+  <div class="ah">
+    <div class="at">⚡ Admin Panel</div>
+    <div class="as" id="ownerAddr">// Contract Owner Only</div>
   </div>
   <div class="sec">
-    <div class="admin-grid">
-      <div class="acard">
-        <div class="acard-title">Create New Match</div>
-        <div class="form-group">
-          <label class="flabel">Match Type</label>
-          <select class="fselect" id="f-type">
-            <option>ICC Champions Trophy 2025</option>
-            <option>T20 World Cup 2026</option>
-            <option>Test Match</option>
-            <option>ODI Series</option>
-            <option>T20I Series</option>
-            <option>IPL 2025</option>
-            <option>PSL 2025</option>
-            <option>BPL 2025</option>
-          </select>
+    <div class="ag">
+      <div class="ac">
+        <div class="act">Create New Match</div>
+        <div class="fg"><label class="fl">Match Type</label>
+          <select class="fs" id="f-type"><option>ICC Champions Trophy 2025</option><option>T20 World Cup 2026</option><option>Test Match</option><option>ODI Series</option><option>T20I Series</option><option>IPL 2025</option><option>PSL 2025</option><option>BPL 2025</option></select>
         </div>
-        <div class="form-group">
-          <label class="flabel">Team 1</label>
-          <select class="fselect" id="f-team1">
-            <option>IND</option><option>AUS</option><option>ENG</option>
-            <option>PAK</option><option>SA</option><option>NZ</option>
-            <option>BAN</option><option>SL</option><option>WI</option>
-            <option>AFG</option><option>ZIM</option><option>IRE</option>
-          </select>
+        <div class="fg"><label class="fl">Team 1</label>
+          <select class="fs" id="f-t1"><option>IND</option><option>AUS</option><option>ENG</option><option>PAK</option><option>SA</option><option>NZ</option><option>BAN</option><option>SL</option><option>WI</option><option>AFG</option></select>
         </div>
-        <div class="form-group">
-          <label class="flabel">Team 2</label>
-          <select class="fselect" id="f-team2">
-            <option>AUS</option><option>IND</option><option>ENG</option>
-            <option>PAK</option><option>SA</option><option>NZ</option>
-            <option>BAN</option><option>SL</option><option>WI</option>
-            <option>AFG</option><option>ZIM</option><option>IRE</option>
-          </select>
+        <div class="fg"><label class="fl">Team 2</label>
+          <select class="fs" id="f-t2"><option>AUS</option><option>IND</option><option>ENG</option><option>PAK</option><option>SA</option><option>NZ</option><option>BAN</option><option>SL</option><option>WI</option><option>AFG</option></select>
         </div>
-        <div class="form-group">
-          <label class="flabel">Venue</label>
-          <input class="finput" id="f-venue" placeholder="e.g. Eden Gardens, Kolkata">
-        </div>
-        <div class="form-group">
-          <label class="flabel">Match Start (Date & Time)</label>
-          <input class="finput" type="datetime-local" id="f-time">
-        </div>
-        <button class="btn btn-w btn-full" onclick="createMatch()" style="margin-top:0.5rem">Create Match on Chain ↗</button>
+        <div class="fg"><label class="fl">Venue</label><input class="fi" id="f-venue" placeholder="e.g. Eden Gardens, Kolkata"></div>
+        <div class="fg"><label class="fl">Match Start</label><input class="fi" type="datetime-local" id="f-time"></div>
+        <button class="btn btn-w bf" onclick="createMatch()" style="margin-top:0.5rem">Create Match on Chain ↗</button>
       </div>
-
-      <div class="acard">
-        <div class="acard-title">Manage Matches</div>
-        <div id="adminMatchList"><div class="loading"><div class="spin"></div> Loading...</div></div>
+      <div class="ac">
+        <div class="act">Manage Matches</div>
+        <div id="adminMatchList"><div class="loading"><div class="spin"></div>Loading...</div></div>
       </div>
     </div>
-
     <div style="border:1px solid var(--border);margin-top:1px;">
-      <div class="acard">
-        <div class="acard-title">Quick Add — Real 2025 Matches</div>
-        <div class="quick-grid" id="quickGrid"></div>
+      <div class="ac">
+        <div class="act">Quick Add — Real 2025 Matches</div>
+        <div class="qg" id="quickGrid"></div>
       </div>
     </div>
   </div>
 </div>
 
 <footer>
-  <div class="flogo">CricketChain</div>
-  <div class="fmeta">On-chain prediction market · Built for <a href="https://rialo.io" target="_blank">Rialo Protocol ↗</a> · <a href="https://sepolia.etherscan.io/address/0x4b57B653CE1f9422772015717FC0Ebd920EC16E8" target="_blank">Contract ↗</a></div>
+  <div class="fl2">CricketChain</div>
+  <div class="fm">Built for <a href="https://rialo.io" target="_blank">Rialo Protocol ↗</a> · <a href="https://sepolia.etherscan.io/address/0x4b57B653CE1f9422772015717FC0Ebd920EC16E8" target="_blank">Contract ↗</a></div>
 </footer>
 
 <script>
-const CA = '0x4b57B653CE1f9422772015717FC0Ebd920EC16E8'
-const ABI_UMD = [
-  "function matchCount() view returns (uint256)",
-  "function getAllMatches() view returns (tuple(uint256 id,string team1,string team2,string matchType,string venue,uint256 startTime,uint8 status,uint8 result,uint256 totalPool,uint256 team1Pool,uint256 team2Pool,uint256 drawPool)[])",
-  "function predict(uint256,uint8) payable",
-  "function claimReward(uint256)",
-  "function claimRefund(uint256)",
-  "function getUserPrediction(uint256,address) view returns (tuple(address predictor,uint256 matchId,uint8 choice,uint256 amount,bool claimed))",
-  "function createMatch(string,string,string,string,uint256) returns (uint256)",
-  "function closeMatch(uint256)",
-  "function resolveMatch(uint256,uint8)",
-  "function cancelMatch(uint256)",
-  "function owner() view returns (address)"
-]
-
-const FLAGS = {IND:'🇮🇳',AUS:'🇦🇺',ENG:'🏴󠁧󠁢󠁥󠁮󠁧󠁿',SA:'🇿🇦',NZ:'🇳🇿',PAK:'🇵🇰',BAN:'🇧🇩',SL:'🇱🇰',WI:'🌴',AFG:'🇦🇫',ZIM:'🇿🇼',IRE:'🇮🇪'}
+const CA='0x4b57B653CE1f9422772015717FC0Ebd920EC16E8'
+const PID='1724feb47aaa94102743462f8a84e693'
+const CHAIN=11155111, CHAINHEX='0xaa36a7'
+const ABI=["function matchCount() view returns (uint256)","function getAllMatches() view returns (tuple(uint256 id,string team1,string team2,string matchType,string venue,uint256 startTime,uint8 status,uint8 result,uint256 totalPool,uint256 team1Pool,uint256 team2Pool,uint256 drawPool)[])","function predict(uint256,uint8) payable","function claimReward(uint256)","function getUserPrediction(uint256,address) view returns (tuple(address predictor,uint256 matchId,uint8 choice,uint256 amount,bool claimed))","function createMatch(string,string,string,string,uint256) returns (uint256)","function closeMatch(uint256)","function resolveMatch(uint256,uint8)","function cancelMatch(uint256)","function owner() view returns (address)"]
+const FLAGS={IND:'🇮🇳',AUS:'🇦🇺',ENG:'🏴󠁧󠁢󠁥󠁮󠁧󠁿',SA:'🇿🇦',NZ:'🇳🇿',PAK:'🇵🇰',BAN:'🇧🇩',SL:'🇱🇰',WI:'🌴',AFG:'🇦🇫'}
 function gf(t){for(const[k,f]of Object.entries(FLAGS))if(t&&t.toUpperCase().includes(k))return f;return'🏏'}
-
-const QUICK_MATCHES = [
-  {team1:'IND',team2:'AUS',type:'ICC Champions Trophy 2025',venue:'Dubai Int\'l Stadium',ts:Math.floor(Date.now()/1000)+86400},
-  {team1:'PAK',team2:'NZ',type:'ICC Champions Trophy 2025',venue:'Rawalpindi Cricket Stadium',ts:Math.floor(Date.now()/1000)+172800},
-  {team1:'ENG',team2:'SA',type:'ICC Champions Trophy 2025',venue:'National Stadium Karachi',ts:Math.floor(Date.now()/1000)+259200},
-  {team1:'BAN',team2:'AFG',type:'T20I Series',venue:'Shere Bangla Stadium, Dhaka',ts:Math.floor(Date.now()/1000)+345600},
-  {team1:'IND',team2:'ENG',type:'T20I Series',venue:'Narendra Modi Stadium',ts:Math.floor(Date.now()/1000)+432000},
-  {team1:'AUS',team2:'WI',type:'ODI Series',venue:'Kensington Oval, Barbados',ts:Math.floor(Date.now()/1000)+518400},
-  {team1:'SL',team2:'NZ',type:'Test Match',venue:'R. Premadasa Stadium, Colombo',ts:Math.floor(Date.now()/1000)+604800},
-  {team1:'PAK',team2:'BAN',type:'ODI Series',venue:'Gaddafi Stadium, Lahore',ts:Math.floor(Date.now()/1000)+691200},
+const QUICK=[
+  {t1:'IND',t2:'AUS',type:'ICC Champions Trophy 2025',venue:'Dubai Int\'l Stadium'},
+  {t1:'PAK',t2:'NZ',type:'ICC Champions Trophy 2025',venue:'Rawalpindi Cricket Stadium'},
+  {t1:'ENG',t2:'SA',type:'ICC Champions Trophy 2025',venue:'National Stadium, Karachi'},
+  {t1:'BAN',t2:'AFG',type:'T20I Series',venue:'Shere Bangla Stadium, Dhaka'},
+  {t1:'IND',t2:'ENG',type:'T20I Series',venue:'Narendra Modi Stadium'},
+  {t1:'AUS',t2:'WI',type:'ODI Series',venue:'Kensington Oval, Barbados'},
+  {t1:'SL',t2:'NZ',type:'Test Match',venue:'R. Premadasa, Colombo'},
+  {t1:'PAK',t2:'BAN',type:'ODI Series',venue:'Gaddafi Stadium, Lahore'},
 ]
 
-let curBet={}, curResult={matchId:null,team1:'',team2:''}, selRes=null
+// STATE
+let userAddr=null,contract=null,isOwner=false,wcProv=null
+let curBet={},curRes={},selRes=null
 
-// ---- TABS ----
-function switchTab(name){
+// TABS
+function switchTab(n){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'))
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'))
-  document.getElementById('page-'+name).classList.add('active')
-  document.getElementById('tab-'+name).classList.add('active')
-  if(name==='mybets') loadMyBets()
-  if(name==='admin') loadAdminMatches()
+  document.getElementById('page-'+n).classList.add('active')
+  document.getElementById('tab-'+n).classList.add('active')
+  if(n==='mybets')loadMyBets()
+  if(n==='admin')loadAdminMatches()
+}
+function closeM(id){document.getElementById(id).classList.remove('on')}
+
+// WALLET MODAL
+function openWalletModal(){
+  if(userAddr){if(confirm('Disconnect wallet?'))disconnect();return}
+  document.getElementById('walletModal').classList.add('on')
 }
 
-function closeModal(id){document.getElementById(id).classList.remove('on')}
+// MetaMask
+async function doMetaMask(){
+  closeM('walletModal')
+  if(!window.ethereum){toast('MetaMask not found!');return}
+  try{
+    try{await window.ethereum.request({method:'wallet_switchEthereumChain',params:[{chainId:CHAINHEX}]})}
+    catch(e){if(e.code===4902)await window.ethereum.request({method:'wallet_addEthereumChain',params:[{chainId:CHAINHEX,chainName:'Sepolia Testnet',nativeCurrency:{name:'ETH',symbol:'ETH',decimals:18},rpcUrls:['https://rpc.sepolia.org'],blockExplorerUrls:['https://sepolia.etherscan.io']}]})}
+    await window.ethereum.request({method:'eth_requestAccounts'})
+    const p=new ethers.BrowserProvider(window.ethereum)
+    await onConnected(await p.getSigner())
+  }catch(e){toast('✗ '+(e.message||'').slice(0,60))}
+}
 
-// ---- LOAD MATCHES ----
+// Coinbase
+async function doCoinbase(){
+  closeM('walletModal')
+  const p=window.coinbaseWalletExtension||window.ethereum
+  if(!p){toast('Coinbase Wallet not found');return}
+  try{
+    const bp=new ethers.BrowserProvider(p)
+    await bp.send('eth_requestAccounts',[])
+    await onConnected(await bp.getSigner())
+  }catch(e){toast('✗ '+(e.message||'').slice(0,60))}
+}
+
+// Trust Wallet → uses WalletConnect
+async function doTrust(){await doWalletConnect()}
+
+// WalletConnect
+async function doWalletConnect(){
+  closeM('walletModal')
+  toast('⏳ Initializing WalletConnect...')
+  try{
+    const WCP=window['@walletconnect/ethereum-provider'].EthereumProvider
+    wcProv=await WCP.init({
+      projectId:PID,
+      chains:[CHAIN],
+      showQrModal:false,
+      metadata:{name:'CricketChain',description:'Cricket Prediction Market',url:location.origin||'https://cricketchain.app',icons:['https://avatars.githubusercontent.com/u/37784886']}
+    })
+    wcProv.on('display_uri',uri=>showQR(uri))
+    wcProv.on('connect',async()=>{
+      closeM('qrModal')
+      const p=new ethers.BrowserProvider(wcProv)
+      await onConnected(await p.getSigner())
+    })
+    wcProv.on('disconnect',()=>disconnect())
+    await wcProv.connect()
+  }catch(e){toast('✗ '+(e.message||'WalletConnect error').slice(0,60));closeM('qrModal')}
+}
+function cancelWC(){if(wcProv)try{wcProv.disconnect()}catch(e){}}
+
+function showQR(uri){
+  document.getElementById('qrModal').classList.add('on')
+  const d=document.getElementById('qrdiv')
+  d.innerHTML=''
+  try{new QRCode(d,{text:uri,width:240,height:240,colorDark:'#000',colorLight:'#fff'})}
+  catch(e){d.innerHTML='<p style="font-size:0.6rem;color:#555;word-break:break-all">'+uri+'</p>'}
+}
+
+// ON CONNECTED
+async function onConnected(signer){
+  userAddr=await signer.getAddress()
+  contract=new ethers.Contract(CA,ABI,signer)
+  try{const o=await contract.owner();isOwner=o.toLowerCase()===userAddr.toLowerCase()}catch(e){isOwner=false}
+  
+  const short=userAddr.slice(0,6)+'...'+userAddr.slice(-4)
+  const btn=document.getElementById('connectBtn')
+  if(isOwner){
+    btn.textContent='👑 '+short
+    btn.style.cssText='background:transparent;color:#fbbf24;border:1px solid rgba(251,191,36,0.4);font-family:JetBrains Mono,monospace;font-size:0.62rem;padding:0.4rem 0.8rem;border-radius:3px;cursor:pointer;letter-spacing:0.05em;'
+    document.getElementById('tab-admin').style.display='block'
+    document.getElementById('ownerAddr').textContent='// Owner: '+userAddr
+  } else {
+    btn.textContent=short
+    btn.style.cssText='background:#0d0d0d;color:#666;border:1px solid #1f1f1f;font-family:JetBrains Mono,monospace;font-size:0.62rem;padding:0.4rem 0.8rem;border-radius:3px;cursor:pointer;'
+    document.getElementById('tab-admin').style.display='none'
+  }
+  toast(isOwner?'✓ Connected as Owner 👑':'✓ Connected: '+short)
+  loadMatches()
+}
+
+function disconnect(){
+  userAddr=null;contract=null;isOwner=false
+  if(wcProv)try{wcProv.disconnect()}catch(e){}
+  wcProv=null
+  const btn=document.getElementById('connectBtn')
+  btn.textContent='Connect';btn.style.cssText='';btn.className='btn btn-w'
+  document.getElementById('tab-admin').style.display='none'
+  if(document.getElementById('page-admin').classList.contains('active'))switchTab('markets')
+  toast('Disconnected')
+}
+
+// LOAD MATCHES
 async function loadMatches(){
   const el=document.getElementById('matchContainer')
-  el.innerHTML='<div class="loading"><div class="spin"></div> Reading from blockchain...</div>'
+  el.innerHTML='<div class="loading"><div class="spin"></div>Reading from blockchain...</div>'
   try{
     const rp=new ethers.JsonRpcProvider('https://rpc.sepolia.org')
-    const rc=new ethers.Contract(CA,ABI_UMD,rp)
+    const rc=new ethers.Contract(CA,ABI,rp)
     const count=await rc.matchCount()
     const matches=await rc.getAllMatches()
     let pool=0n,active=0,cards=[]
-    for(const m of matches){
-      pool+=m.totalPool
-      if(m.status===0n||m.status===1n){cards.push(buildCard(m));active++}
-    }
+    for(const m of matches){pool+=m.totalPool;if(m.status===0n||m.status===1n){cards.push(buildCard(m));active++}}
     document.getElementById('s-matches').textContent=count.toString()
     document.getElementById('s-pool').textContent=parseFloat(ethers.formatEther(pool)).toFixed(4)+' ETH'
     document.getElementById('mc').textContent=active+' active'
-    el.innerHTML=cards.length===0
-      ?'<div class="empty"><div class="empty-t">No active markets yet</div><div class="empty-s">// Admin needs to add matches via Admin Panel</div></div>'
-      :'<div class="mgrid">'+cards.join('')+'</div>'
+    el.innerHTML=cards.length===0?'<div class="empty"><div class="et">No active markets yet</div><div class="es">// Admin will add matches soon</div></div>':'<div class="mgrid">'+cards.join('')+'</div>'
   }catch(err){
-    el.innerHTML='<div class="empty"><div class="empty-t">Could not load</div><div class="empty-s">// '+( err.message||'').slice(0,60)+'</div></div>'
+    el.innerHTML='<div class="empty"><div class="et">Could not load</div><div class="es">// '+(err.message||'').slice(0,60)+'</div></div>'
     document.getElementById('mc').textContent='Error'
   }
 }
 
 function buildCard(m){
-  const sMap={0n:'Open',1n:'Closed',2n:'Resolved',3n:'Cancelled'}
-  const sCls={0n:'s0',1n:'s1',2n:'s2',3n:'s3'}
+  const sMap={0n:'Open',1n:'Closed',2n:'Resolved',3n:'Cancelled'},sCls={0n:'s0',1n:'s1',2n:'s2',3n:'s3'}
   const pool=parseFloat(ethers.formatEther(m.totalPool)).toFixed(4)
-  const t1=Number(m.team1Pool)||1,t2=Number(m.team2Pool)||1
-  const tot=t1+t2,p1=Math.round(t1/tot*100),p2=100-p1
-  const dt=new Date(Number(m.startTime)*1000).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})
+  const t1=Number(m.team1Pool)||1,t2=Number(m.team2Pool)||1,tot=t1+t2
+  const p1=Math.round(t1/tot*100),p2=100-p1
+  const dt=new Date(Number(m.startTime)*1000).toLocaleDateString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})
   const open=m.status===0n
-  return `<div class="mcard">
-    <div class="mcard-head"><span class="mtype">${m.matchType} · #${m.id}</span><span class="sbadge ${sCls[m.status]}">${sMap[m.status]}</span></div>
-    <div class="teams">
-      <div class="team"><span class="tflag">${gf(m.team1)}</span><div class="tname">${m.team1}</div></div>
-      <div class="vs">VS</div>
-      <div class="team"><span class="tflag">${gf(m.team2)}</span><div class="tname">${m.team2}</div></div>
+  return `<div class="mc">
+    <div class="mh"><span class="mtype">${m.matchType} · #${m.id}</span><span class="sb ${sCls[m.status]}">${sMap[m.status]}</span></div>
+    <div class="teams"><div class="team"><span class="tf">${gf(m.team1)}</span><div class="tn">${m.team1}</div></div><div class="vs">VS</div><div class="team"><span class="tf">${gf(m.team2)}</span><div class="tn">${m.team2}</div></div></div>
+    <div class="pb">
+      <div class="pr"><span class="pn">${m.team1.slice(0,3)}</span><div class="pbg"><div class="pf" style="width:${p1}%"></div></div><span class="pp">${p1}%</span></div>
+      <div class="pr"><span class="pn">${m.team2.slice(0,3)}</span><div class="pbg"><div class="pf" style="width:${p2}%"></div></div><span class="pp">${p2}%</span></div>
     </div>
-    <div class="pbar-wrap">
-      <div class="prow"><span class="pname">${m.team1.slice(0,3)}</span><div class="pbg"><div class="pfill" style="width:${p1}%"></div></div><span class="ppct">${p1}%</span></div>
-      <div class="prow"><span class="pname">${m.team2.slice(0,3)}</span><div class="pbg"><div class="pfill" style="width:${p2}%"></div></div><span class="ppct">${p2}%</span></div>
-    </div>
-    <div class="cmeta">
-      <span class="cmi">Pool: <span>${pool} ETH</span></span>
-      <span class="cmi">Venue: <span>${m.venue}</span></span>
-      <span class="cmi">Start: <span>${dt}</span></span>
-    </div>
-    ${open?`<div class="brow">
-      <button class="bbtn" onclick="openBet(${m.id},'${m.team1}',1,'${m.matchType}','${m.team2}','${pool}')">${gf(m.team1)} ${m.team1} Wins</button>
-      <button class="bbtn" onclick="openBet(${m.id},'${m.team2}',2,'${m.matchType}','${m.team1}','${pool}')">${gf(m.team2)} ${m.team2} Wins</button>
-    </div>`:`<div class="closed-label">Market ${sMap[m.status]}</div>`}
+    <div class="cm"><span class="cmi">Pool: <span>${pool} ETH</span></span><span class="cmi">Venue: <span>${m.venue.split(',')[0]}</span></span><span class="cmi">Start: <span>${dt}</span></span></div>
+    ${open?`<div class="brow"><button class="bb" onclick="openBet(${m.id},'${m.team1}',1,'${m.matchType}','${m.team2}','${pool}')">${gf(m.team1)} ${m.team1} Wins</button><button class="bb" onclick="openBet(${m.id},'${m.team2}',2,'${m.matchType}','${m.team1}','${pool}')">${gf(m.team2)} ${m.team2} Wins</button></div>`:`<div class="cl2">Market ${sMap[m.status]}</div>`}
   </div>`
 }
 
-// ---- BET ----
+// BET
 function openBet(matchId,team,choice,type,opp,pool){
-  if(!window._userAddr){window._appkit&&window._appkit.open();return}
+  if(!userAddr){openWalletModal();return}
   curBet={matchId,team,choice,type,opp}
   document.getElementById('betLabel').textContent=`// ${team} VS ${opp} — ${type}`
   document.getElementById('betPick').textContent=`${gf(team)} ${team} WINS`
   document.getElementById('betPool').textContent=`Pool: ${pool} ETH`
-  updateRet()
-  document.getElementById('betModal').classList.add('on')
+  updRet();document.getElementById('betModal').classList.add('on')
 }
-function setAmt(v){document.getElementById('betAmt').value=v;updateRet()}
-function updateRet(){
-  const a=parseFloat(document.getElementById('betAmt').value)||0
-  document.getElementById('retVal').textContent=(a*1.9).toFixed(4)+' ETH (est.)'
-}
+function sAmt(v){document.getElementById('betAmt').value=v;updRet()}
+function updRet(){const a=parseFloat(document.getElementById('betAmt').value)||0;document.getElementById('retVal').textContent=(a*1.9).toFixed(4)+' ETH (est.)'}
 async function confirmBet(){
-  const c=window._contract
-  if(!c){toast('Connect wallet first');return}
+  if(!contract){toast('Connect wallet first');return}
   const amt=parseFloat(document.getElementById('betAmt').value)
   if(!amt||amt<0.001){toast('Minimum 0.001 ETH');return}
-  closeModal('betModal')
-  toast('⏳ Confirm in wallet...')
+  closeM('betModal');toast('⏳ Confirm in wallet...')
   try{
-    const tx=await c.predict(curBet.matchId,curBet.choice,{value:ethers.parseEther(amt.toString())})
-    toast('⏳ Confirming on chain...')
-    await tx.wait()
-    toast('✓ Prediction placed on-chain!')
-    loadMatches()
-  }catch(err){toast('✗ '+(err.reason||err.message||'Failed').slice(0,60))}
+    const tx=await contract.predict(curBet.matchId,curBet.choice,{value:ethers.parseEther(amt.toString())})
+    toast('⏳ Confirming on chain...');await tx.wait()
+    toast('✓ Prediction placed!');loadMatches()
+  }catch(e){toast('✗ '+(e.reason||e.message||'').slice(0,60))}
 }
 
-// ---- MY BETS ----
+// MY BETS
 async function loadMyBets(){
-  const ua=window._userAddr
-  if(!ua){
-    document.getElementById('myBetsContainer').innerHTML='<div class="empty"><div class="empty-t">Connect wallet first</div></div>'
-    return
-  }
+  if(!userAddr){document.getElementById('myBetsContainer').innerHTML='<div class="empty"><div class="et">Connect wallet first</div></div>';return}
   const rp=new ethers.JsonRpcProvider('https://rpc.sepolia.org')
-  const rc=new ethers.Contract(CA,ABI_UMD,rp)
+  const rc=new ethers.Contract(CA,ABI,rp)
   try{
     const matches=await rc.getAllMatches()
     let html='',n=0
+    const sMap={0n:'Open',1n:'Closed',2n:'Resolved',3n:'Cancelled'}
     for(const m of matches){
-      const p=await rc.getUserPrediction(m.id,ua)
+      const p=await rc.getUserPrediction(m.id,userAddr)
       if(p.amount>0n){
         n++
         const pick=p.choice===1n?m.team1:p.choice===2n?m.team2:'Draw'
         const amt=parseFloat(ethers.formatEther(p.amount)).toFixed(4)
-        const sMap={0n:'Open',1n:'Closed',2n:'Resolved',3n:'Cancelled'}
         const won=m.status===2n&&p.choice===m.result
-        const canClaim=won&&!p.claimed
-        html+=`<div class="mybet-card">
-          <div class="mybet-info">
-            <div class="match-label">${gf(m.team1)} ${m.team1} vs ${gf(m.team2)} ${m.team2}</div>
-            <div class="bet-detail">Pick: ${gf(pick)} ${pick} · Staked: ${amt} ETH · ${p.claimed?'✓ Claimed':won?'🏆 Won':sMap[m.status]}</div>
-          </div>
-          ${canClaim?`<button class="btn btn-g" onclick="claimReward(${m.id})">Claim ↗</button>`:''}
-        </div>`
+        html+=`<div class="mbc"><div><div class="ml">${gf(m.team1)} ${m.team1} vs ${gf(m.team2)} ${m.team2}</div><div class="bd">Pick: ${gf(pick)} ${pick} · ${amt} ETH · ${p.claimed?'✓ Claimed':won?'🏆 Won':sMap[m.status]}</div></div>${won&&!p.claimed?`<button class="btn btn-g" onclick="claimR(${m.id})">Claim ↗</button>`:''}</div>`
       }
     }
     document.getElementById('myBetsCount').textContent=n+' predictions'
-    document.getElementById('myBetsContainer').innerHTML=n===0
-      ?'<div class="empty"><div class="empty-t">No predictions yet</div><div class="empty-s">// Place your first bet in Markets tab</div></div>'
-      :html
+    document.getElementById('myBetsContainer').innerHTML=n===0?'<div class="empty"><div class="et">No predictions yet</div><div class="es">// Place your first bet!</div></div>':html
   }catch(e){console.error(e)}
 }
-
-async function claimReward(id){
-  const c=window._contract
-  if(!c)return
-  try{
-    toast('⏳ Claiming reward...')
-    const tx=await c.claimReward(id)
-    await tx.wait()
-    toast('✓ Reward claimed!')
-    loadMyBets()
-  }catch(e){toast('✗ '+(e.reason||e.message||'Failed').slice(0,60))}
+async function claimR(id){
+  if(!contract)return
+  toast('⏳ Claiming...')
+  try{const tx=await contract.claimReward(id);await tx.wait();toast('✓ Claimed!');loadMyBets()}
+  catch(e){toast('✗ '+(e.reason||e.message||'').slice(0,60))}
 }
 
-// ---- ADMIN ----
+// ADMIN
 async function createMatch(){
-  const c=window._contract
-  if(!c){toast('Connect wallet first');return}
-  if(!window._isOwner){toast('Only owner can create matches');return}
-  const team1=document.getElementById('f-team1').value
-  const team2=document.getElementById('f-team2').value
+  if(!contract||!isOwner){toast('Owner only');return}
+  const t1=document.getElementById('f-t1').value,t2=document.getElementById('f-t2').value
+  if(t1===t2){toast('Teams must be different');return}
   const type=document.getElementById('f-type').value
   const venue=document.getElementById('f-venue').value||'TBD'
-  const timeVal=document.getElementById('f-time').value
-  if(!timeVal){toast('Set match start time');return}
-  if(team1===team2){toast('Teams must be different');return}
-  const ts=Math.floor(new Date(timeVal).getTime()/1000)
-  if(ts<=Math.floor(Date.now()/1000)){toast('Start time must be in future');return}
-  toast('⏳ Creating match on chain...')
+  const tv=document.getElementById('f-time').value
+  if(!tv){toast('Set match start time');return}
+  const ts=Math.floor(new Date(tv).getTime()/1000)
+  if(ts<=Math.floor(Date.now()/1000)){toast('Must be future time');return}
+  toast('⏳ Creating match...')
   try{
-    const tx=await c.createMatch(team1,team2,type,venue,ts)
-    await tx.wait()
-    toast('✓ Match created on Sepolia!')
-    loadMatches()
-    loadAdminMatches()
-  }catch(err){toast('✗ '+(err.reason||err.message||'Failed').slice(0,60))}
+    const tx=await contract.createMatch(t1,t2,type,venue,ts)
+    await tx.wait();toast('✓ Match created!');loadMatches();loadAdminMatches()
+  }catch(e){toast('✗ '+(e.reason||e.message||'').slice(0,60))}
 }
-
-async function quickAdd(idx){
-  const c=window._contract
-  if(!c){toast('Connect wallet first');return}
-  if(!window._isOwner){toast('Only owner can create matches');return}
-  const m=QUICK_MATCHES[idx]
-  toast('⏳ Adding '+m.team1+' vs '+m.team2+'...')
+async function quickAdd(i){
+  if(!contract||!isOwner){toast('Owner only');return}
+  const m=QUICK[i],ts=Math.floor(Date.now()/1000)+(i+1)*86400
+  toast('⏳ Adding '+m.t1+' vs '+m.t2+'...')
   try{
-    const tx=await c.createMatch(m.team1,m.team2,m.type,m.venue,m.ts)
-    await tx.wait()
-    toast('✓ '+m.team1+' vs '+m.team2+' added!')
-    loadMatches()
-    loadAdminMatches()
-  }catch(err){toast('✗ '+(err.reason||err.message||'Failed').slice(0,60))}
+    const tx=await contract.createMatch(m.t1,m.t2,m.type,m.venue,ts)
+    await tx.wait();toast('✓ '+m.t1+' vs '+m.t2+' added!');loadMatches();loadAdminMatches()
+  }catch(e){toast('✗ '+(e.reason||e.message||'').slice(0,60))}
 }
-
 async function loadAdminMatches(){
   const el=document.getElementById('adminMatchList')
-  el.innerHTML='<div class="loading"><div class="spin"></div> Loading...</div>'
+  el.innerHTML='<div class="loading"><div class="spin"></div>Loading...</div>'
   try{
     const rp=new ethers.JsonRpcProvider('https://rpc.sepolia.org')
-    const rc=new ethers.Contract(CA,ABI_UMD,rp)
+    const rc=new ethers.Contract(CA,ABI,rp)
     const matches=await rc.getAllMatches()
-    if(matches.length===0){
-      el.innerHTML='<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.62rem;color:var(--g600);padding:1rem">No matches yet. Create one!</div>'
-      return
-    }
     const sMap={0:'Open',1:'Closed',2:'Resolved',3:'Cancelled'}
-    el.innerHTML=matches.map(m=>`<div class="arow">
-      <div class="arow-info">
-        <div class="arow-teams">${gf(m.team1)} ${m.team1} vs ${gf(m.team2)} ${m.team2}</div>
-        <div class="arow-meta">#${m.id} · ${m.matchType} · ${sMap[Number(m.status)]} · ${parseFloat(ethers.formatEther(m.totalPool)).toFixed(4)} ETH</div>
-      </div>
-      <div class="arow-actions">
-        ${Number(m.status)===0?`<button class="abtn btn-o" onclick="adminClose(${m.id})">Close</button>`:''}
-        ${Number(m.status)===1?`<button class="abtn btn-g" onclick="openResult(${m.id},'${m.team1}','${m.team2}')">Set Result</button>`:''}
-        ${Number(m.status)===0||Number(m.status)===1?`<button class="abtn btn-r" onclick="adminCancel(${m.id})">Cancel</button>`:''}
-      </div>
-    </div>`).join('')
-  }catch(err){
-    el.innerHTML='<div style="color:var(--red);font-family:\'JetBrains Mono\',monospace;font-size:0.62rem;padding:1rem">Error loading matches</div>'
-  }
+    if(!matches.length){el.innerHTML='<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.62rem;color:#555;padding:1rem">No matches yet</div>';return}
+    el.innerHTML=matches.map(m=>`<div class="ar"><div class="ai"><div class="at2">${gf(m.team1)} ${m.team1} vs ${gf(m.team2)} ${m.team2}</div><div class="am">#${m.id} · ${sMap[Number(m.status)]} · ${parseFloat(ethers.formatEther(m.totalPool)).toFixed(4)} ETH</div></div><div class="aa">${Number(m.status)===0?`<button class="ab btn-o" onclick="adminClose(${m.id})">Close</button>`:''}${Number(m.status)===1?`<button class="ab btn-g" onclick="openRes(${m.id},'${m.team1}','${m.team2}')">Set Result</button>`:''}${Number(m.status)<=1?`<button class="ab btn-r" onclick="adminCancel(${m.id})">Cancel</button>`:''}</div></div>`).join('')
+  }catch(e){el.innerHTML='<div style="color:var(--red);font-size:0.65rem;padding:1rem">Error</div>'}
 }
-
 async function adminClose(id){
-  if(!window._contract||!window._isOwner){toast('Owner only');return}
-  toast('⏳ Closing market...')
-  try{const tx=await window._contract.closeMatch(id);await tx.wait();toast('✓ Market closed');loadAdminMatches();loadMatches()}
+  if(!contract||!isOwner)return
+  toast('⏳ Closing...')
+  try{const tx=await contract.closeMatch(id);await tx.wait();toast('✓ Closed');loadAdminMatches();loadMatches()}
   catch(e){toast('✗ '+(e.reason||e.message||'').slice(0,50))}
 }
-
 async function adminCancel(id){
-  if(!window._contract||!window._isOwner){toast('Owner only');return}
+  if(!contract||!isOwner)return
+  if(!confirm('Cancel? Users can refund.'))return
   toast('⏳ Cancelling...')
-  try{const tx=await window._contract.cancelMatch(id);await tx.wait();toast('✓ Cancelled — users can refund');loadAdminMatches();loadMatches()}
+  try{const tx=await contract.cancelMatch(id);await tx.wait();toast('✓ Cancelled');loadAdminMatches();loadMatches()}
   catch(e){toast('✗ '+(e.reason||e.message||'').slice(0,50))}
 }
-
-function openResult(id,t1,t2){
-  curResult={matchId:id,team1:t1,team2:t2};selRes=null
-  document.getElementById('resultLabel').textContent=`// ${t1} VS ${t2}`
+function openRes(id,t1,t2){
+  curRes={matchId:id,team1:t1,team2:t2};selRes=null
+  document.getElementById('resLabel').textContent=`// ${t1} VS ${t2}`
   document.getElementById('ropt1').innerHTML=`${gf(t1)}<br>${t1} Wins`
   document.getElementById('ropt2').innerHTML=`${gf(t2)}<br>${t2} Wins`
   document.querySelectorAll('.ropt').forEach(r=>r.classList.remove('sel'))
   document.getElementById('resultModal').classList.add('on')
 }
-function selResult(n){selRes=n;document.querySelectorAll('.ropt').forEach(r=>r.classList.remove('sel'));document.getElementById('ropt'+n).classList.add('sel')}
-async function submitResult(){
+function pickRes(n){selRes=n;document.querySelectorAll('.ropt').forEach(r=>r.classList.remove('sel'));document.getElementById('ropt'+n).classList.add('sel')}
+async function submitRes(){
   if(!selRes){toast('Select a result');return}
-  if(!window._contract||!window._isOwner){toast('Owner only');return}
-  closeModal('resultModal')
-  toast('⏳ Submitting result...')
+  if(!contract||!isOwner){toast('Owner only');return}
+  closeM('resultModal');toast('⏳ Submitting...')
   try{
-    const tx=await window._contract.resolveMatch(curResult.matchId,selRes)
-    await tx.wait()
-    toast('✓ Result set! Winners can now claim.')
-    loadAdminMatches();loadMatches()
+    const tx=await contract.resolveMatch(curRes.matchId,selRes)
+    await tx.wait();toast('✓ Result set! Winners can claim.');loadAdminMatches();loadMatches()
   }catch(e){toast('✗ '+(e.reason||e.message||'').slice(0,60))}
 }
 
-function toast(msg){
-  const t=document.getElementById('toast')
-  t.textContent=msg;t.classList.add('show')
-  clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),4000)
-}
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),4500)}
 
-// Quick matches buttons
+// INIT
 window.addEventListener('load',()=>{
-  const qg=document.getElementById('quickGrid')
-  if(qg){
-    qg.innerHTML=QUICK_MATCHES.map((m,i)=>`
-      <button class="qmatch-btn" onclick="quickAdd(${i})">
-        <span class="qt">${gf(m.team1)} ${m.team1} vs ${gf(m.team2)} ${m.team2}</span>
-        <span class="qs">${m.type} · ${m.venue.split(',')[0]}</span>
-      </button>`).join('')
-  }
+  document.getElementById('quickGrid').innerHTML=QUICK.map((m,i)=>`<button class="qmb" onclick="quickAdd(${i})"><span class="qt">${gf(m.t1)} ${m.t1} vs ${gf(m.t2)} ${m.t2}</span><span class="qs">${m.type}</span></button>`).join('')
   loadMatches()
+  if(window.ethereum)window.ethereum.request({method:'eth_accounts'}).then(a=>{if(a.length>0)doMetaMask()}).catch(()=>{})
 })
 </script>
 </body>
